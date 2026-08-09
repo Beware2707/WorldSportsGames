@@ -53,9 +53,25 @@ class _HomeSectionView extends StatelessWidget {
     if (section.kind != 'live_now' && section.items.isEmpty) {
       return const SizedBox.shrink();
     }
+    final seeAllRoute = switch (section.kind) {
+      'featured_competitions' || 'up_next' => '/home/competitions',
+      'athlete_spotlight' => '/home/athletes',
+      _ => null,
+    };
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: [SectionHeader(section.title), body],
+      children: [
+        SectionHeader(
+          section.title,
+          trailing: seeAllRoute == null
+              ? null
+              : TextButton(
+                  onPressed: () => GoRouter.of(context).go(seeAllRoute),
+                  child: const Text('See all'),
+                ),
+        ),
+        body,
+      ],
     );
   }
 

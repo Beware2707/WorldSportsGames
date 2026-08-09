@@ -1,8 +1,9 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from app.api.deps import DbSession
+from app.core.config import get_settings
 from app.core.pagination import Page, PageParams, page_params, paginate
 from app.repositories.catalog import disciplines_query, get_sport_by_code, sports_query
 from app.schemas.catalog import DisciplineOut, SportDetailOut, SportOut
@@ -14,18 +15,27 @@ Params = Annotated[PageParams, Depends(page_params)]
 
 @router.get("/sports", response_model=Page[SportOut])
 async def list_sports(
+    request: Request,
     session: DbSession,
     params: Params,
     category: Annotated[str | None, Query(pattern="^(summer|winter|la28)$")] = None,
     sort: Annotated[str | None, Query(pattern="^-?(name|sort_order)$")] = None,
-) -> Page[SportOut]:
-    items, total, pages = await paginate(session, sports_query(category, sort), params)
-    return Page(
-        items=[SportOut.model_validate(s) for s in items],
-        total=total,
-        page=params.page,
-        size=params.size,
-        pages=pages,
+) -> dict:
+    # The sport catalogue changes rarely — a short-TTL read-through cache
+    # absorbs the hottest list endpoint. Fail-open: Redis issues → DB.
+    async def produce() -> dict:
+        items, total, pages = await paginate(session, sports_query(category, sort), params)
+        return Page(
+            items=[SportOut.model_validate(s) for s in items],
+            total=total,
+            page=params.page,
+            size=params.size,
+            pages=pages,
+        ).model_dump(mode="json")
+
+    key = f"v1:sports:{category}:{sort}:{params.page}:{params.size}"
+    return await request.app.state.cache.get_or_set(
+        key, get_settings().cache_ttl_seconds, produce
     )
 
 

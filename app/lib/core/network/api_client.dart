@@ -46,6 +46,22 @@ class ApiClient {
     }
   }
 
+  Future<List<dynamic>> getJsonList(
+    String path, {
+    Map<String, dynamic>? query,
+  }) async {
+    try {
+      final response = await _dio.get<List<dynamic>>(
+        path,
+        queryParameters: query,
+        options: _options(),
+      );
+      return response.data ?? const <dynamic>[];
+    } on DioException catch (e) {
+      throw _map(e);
+    }
+  }
+
   Future<Map<String, dynamic>> postJson(
     String path, {
     Object? body,

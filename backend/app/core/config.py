@@ -10,7 +10,9 @@ class Settings(BaseSettings):
     debug: bool = False
 
     database_url: str = "postgresql+asyncpg://sports:sports@localhost:5434/sportsdb"
+    # Empty redis_url disables caching and live pub/sub (local-only fan-out).
     redis_url: str = "redis://localhost:6381/0"
+    cache_ttl_seconds: int = 300
 
     # Dev default only (>=32 bytes for HS256) — every deployed environment
     # MUST set SPORTS_JWT_SECRET.

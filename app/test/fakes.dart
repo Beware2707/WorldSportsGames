@@ -1,4 +1,8 @@
+import 'dart:async';
+
+import 'package:world_sports_games/data/live_repository.dart';
 import 'package:world_sports_games/data/repositories.dart';
+import 'package:world_sports_games/domain/event_models.dart';
 import 'package:world_sports_games/domain/models.dart';
 
 class FakeCatalogRepository implements CatalogRepository {
@@ -54,6 +58,21 @@ class FakeCatalogRepository implements CatalogRepository {
   }
 
   @override
+  Future<Competition> getCompetition(String slug) async {
+    _maybeThrow();
+    return Competition(
+      id: 1,
+      slug: slug,
+      name: 'Olympic Games',
+      level: 'olympic',
+      editions: const [
+        Edition(id: 2, label: 'LA28', year: 2028, status: 'upcoming'),
+        Edition(id: 1, label: 'Paris 2024', year: 2024, status: 'completed'),
+      ],
+    );
+  }
+
+  @override
   Future<List<HomeSection>> homeFeed() async {
     _maybeThrow();
     return const [
@@ -89,5 +108,91 @@ class FakeCatalogRepository implements CatalogRepository {
         },
       ]),
     ];
+  }
+}
+
+const fakeLiveEvent = LiveCoverage(
+  event: SportEvent(
+    id: 42,
+    name: "Women's 100m — Round 1",
+    gender: 'F',
+    phase: 'heat',
+    status: 'live',
+  ),
+  editionLabel: 'LA28',
+  competitionName: 'Olympic Games',
+  competitionSlug: 'olympic-games',
+  currentPhase: 'heat',
+  lastSeq: 3,
+);
+
+class FakeEventsRepository implements EventsRepository {
+  FakeEventsRepository({this.live = const [], this.failWith});
+
+  List<LiveCoverage> live;
+  final Exception? failWith;
+
+  void _maybeThrow() {
+    final e = failWith;
+    if (e != null) throw e;
+  }
+
+  @override
+  Future<Paged<SportEvent>> listEvents(
+      {int? editionId, String? status, int page = 1}) async {
+    _maybeThrow();
+    return const Paged(items: [], total: 0, page: 1, pages: 1);
+  }
+
+  @override
+  Future<SportEventDetail> eventDetail(int id) async {
+    _maybeThrow();
+    return SportEventDetail(
+      id: id,
+      name: "Women's 100m Final",
+      gender: 'F',
+      phase: 'final',
+      status: 'completed',
+      competitionName: 'Olympic Games',
+      competitionSlug: 'olympic-games',
+      results: [
+        EventResult(
+          athlete: const Athlete(
+              id: 1, slug: 'zellie-dunbar', fullName: 'Zellie Dunbar'),
+          position: 1,
+          status: 'ok',
+          valueKind: 'time',
+          valueText: '10.71',
+        ),
+        EventResult(
+          athlete: const Athlete(
+              id: 2, slug: 'harper-quinlan', fullName: 'Harper Quinlan'),
+          position: null,
+          status: 'DNF',
+          valueKind: 'time',
+          valueText: null,
+        ),
+      ],
+    );
+  }
+
+  @override
+  Future<List<LiveCoverage>> liveEvents() async {
+    _maybeThrow();
+    return live;
+  }
+}
+
+/// Test double for the live WebSocket: push [LiveSocketMessage]s manually.
+class FakeLiveSocket implements LiveSocket {
+  final StreamController<LiveSocketMessage> controller =
+      StreamController<LiveSocketMessage>.broadcast();
+
+  @override
+  Stream<LiveSocketMessage> connect() => controller.stream;
+
+  @override
+  void close() {
+    controller.close();
   }
 }

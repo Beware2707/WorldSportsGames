@@ -29,6 +29,12 @@ class CurrentUserNotifier extends Notifier<UserAccount?> {
 final currentUserProvider =
     NotifierProvider<CurrentUserNotifier, UserAccount?>(CurrentUserNotifier.new);
 
+/// One-shot session restore from secure storage at app start.
+final sessionRestoreProvider = FutureProvider<void>((ref) async {
+  final user = await ref.read(authRepositoryProvider).restoreSession();
+  if (user != null) ref.read(currentUserProvider.notifier).set(user);
+});
+
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
 
@@ -177,8 +183,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         Text(user.email),
         const SizedBox(height: AppSpacing.md),
         OutlinedButton.icon(
-          onPressed: () {
-            ref.read(authRepositoryProvider).logout();
+          onPressed: () async {
+            await ref.read(authRepositoryProvider).logout();
             ref.read(currentUserProvider.notifier).set(null);
           },
           icon: const Icon(Icons.logout_rounded),

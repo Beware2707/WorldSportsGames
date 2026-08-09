@@ -1,13 +1,27 @@
-from collections.abc import AsyncIterator
+import os
 
-import pytest
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+# Must be set before any app import: settings are cached at first access.
+# Empty redis_url = cache + live pub/sub disabled (local-only, deterministic);
+# dev fixtures on so the simulator endpoint is testable.
+os.environ["SPORTS_REDIS_URL"] = ""
+os.environ["SPORTS_ENABLE_DEV_FIXTURES"] = "true"
 
-from app.db.base import Base
-from app.db.session import get_db
-from app.main import create_app
-from app.seed.run import seed_dev_fixtures, seed_reference, seed_taxonomy
+from collections.abc import AsyncIterator  # noqa: E402
+
+import pytest  # noqa: E402
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+from sqlalchemy.ext.asyncio import (  # noqa: E402
+    async_sessionmaker,
+    create_async_engine,
+)
+
+from app.core.config import get_settings  # noqa: E402
+from app.db.base import Base  # noqa: E402
+from app.db.session import get_db  # noqa: E402
+from app.main import create_app  # noqa: E402
+from app.seed.run import seed_dev_fixtures, seed_reference, seed_taxonomy  # noqa: E402
+
+get_settings.cache_clear()
 
 
 @pytest.fixture
@@ -26,7 +40,7 @@ async def db_sessionmaker():
 
 
 @pytest.fixture
-async def client(db_sessionmaker) -> AsyncIterator[AsyncClient]:
+async def test_app(db_sessionmaker):
     app = create_app()
 
     async def override_get_db():
@@ -34,6 +48,13 @@ async def client(db_sessionmaker) -> AsyncIterator[AsyncClient]:
             yield session
 
     app.dependency_overrides[get_db] = override_get_db
-    transport = ASGITransport(app=app)
+    # Background simulator sessions must also hit the test database.
+    app.state.session_factory = db_sessionmaker
+    return app
+
+
+@pytest.fixture
+async def client(test_app) -> AsyncIterator[AsyncClient]:
+    transport = ASGITransport(app=test_app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c

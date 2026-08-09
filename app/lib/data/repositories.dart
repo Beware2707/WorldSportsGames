@@ -2,8 +2,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/network/api_client.dart';
 import '../domain/models.dart';
+import 'token_store.dart';
 
 final apiClientProvider = Provider<ApiClient>((ref) => ApiClient());
+
+final tokenStoreProvider = Provider<TokenStore>((ref) => const SecureTokenStore());
 
 /// Catalogue reads (sports, athletes, competitions, home feed).
 ///
@@ -14,6 +17,7 @@ abstract class CatalogRepository {
   Future<Sport> getSport(String code);
   Future<Paged<Athlete>> listAthletes({String? sport, int page});
   Future<Paged<Competition>> listCompetitions({String? level, int page});
+  Future<Competition> getCompetition(String slug);
   Future<List<HomeSection>> homeFeed();
 }
 
@@ -54,6 +58,10 @@ class ApiCatalogRepository implements CatalogRepository {
   }
 
   @override
+  Future<Competition> getCompetition(String slug) async =>
+      Competition.fromJson(await _client.getJson('/api/v1/competitions/$slug'));
+
+  @override
   Future<List<HomeSection>> homeFeed() async {
     final json = await _client.getJson('/api/v1/home');
     return (json['sections'] as List)
@@ -66,12 +74,13 @@ final catalogRepositoryProvider = Provider<CatalogRepository>(
   (ref) => ApiCatalogRepository(ref.watch(apiClientProvider)),
 );
 
-/// Authentication against /api/v1/auth. Token lives in memory for Sprint 1;
-/// secure persistent storage arrives with the profile work in Sprint 3.
+/// Authentication against /api/v1/auth. The JWT is kept on the client and
+/// persisted in secure storage so sessions survive restarts.
 class AuthRepository {
-  AuthRepository(this._client);
+  AuthRepository(this._client, this._tokens);
 
   final ApiClient _client;
+  final TokenStore _tokens;
 
   Future<UserAccount> register({
     required String email,
@@ -89,13 +98,40 @@ class AuthRepository {
       'username': email,
       'password': password,
     });
-    _client.accessToken = token['access_token'] as String;
-    return UserAccount.fromJson(await _client.getJson('/api/v1/auth/me'));
+    final accessToken = token['access_token'] as String;
+    _client.accessToken = accessToken;
+    final user =
+        UserAccount.fromJson(await _client.getJson('/api/v1/auth/me'));
+    await _tokens.write(accessToken);
+    return user;
   }
 
-  void logout() => _client.accessToken = null;
+  /// Restore a persisted session; returns null when there is none or the
+  /// stored token is no longer valid (in which case it is discarded).
+  Future<UserAccount?> restoreSession() async {
+    String? stored;
+    try {
+      stored = await _tokens.read();
+    } catch (_) {
+      return null; // secure storage unavailable — treat as signed out
+    }
+    if (stored == null) return null;
+    _client.accessToken = stored;
+    try {
+      return UserAccount.fromJson(await _client.getJson('/api/v1/auth/me'));
+    } on ApiException catch (e) {
+      _client.accessToken = null;
+      if (!e.isConnectionError) await _tokens.clear();
+      return null;
+    }
+  }
+
+  Future<void> logout() async {
+    _client.accessToken = null;
+    await _tokens.clear();
+  }
 }
 
 final authRepositoryProvider = Provider<AuthRepository>(
-  (ref) => AuthRepository(ref.watch(apiClientProvider)),
+  (ref) => AuthRepository(ref.watch(apiClientProvider), ref.watch(tokenStoreProvider)),
 );

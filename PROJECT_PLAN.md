@@ -39,20 +39,29 @@ interactive sports mini-games, and AI insights — designed sport-agnostic from 
 
 ## 2. Phased Roadmap
 
-### Sprint 1 — Foundation (this sprint) ✅ scope
+### Sprint 1 — Foundation ✅ DONE
 - Monorepo: `backend/` (FastAPI) + `app/` (Flutter) + `docker-compose.yml`.
 - Backend: versioned `/api/v1`, auth (register/login/JWT), Sport/Discipline/Country/
   Athlete/Competition/CompetitionEdition models, Alembic migrations, pagination,
-  filtering, OpenAPI, seed CLI with the full Olympic sport taxonomy + dev fixtures.
+  filtering, OpenAPI, seed CLI with the full Olympic sport taxonomy + dev fixtures,
+  Redis read-through cache on catalogue endpoints (fail-open), GitHub Actions CI.
 - Flutter: design system (tokens, dark/light), GoRouter + bottom navigation shell,
-  Home shell with data-driven sections, Sports screen (real API), API client (Dio),
-  Riverpod repositories with loading/error/empty states, honest placeholder tabs for
-  Live/Games/Profile.
+  data-driven Home feed, Sports/Athletes/Competitions screens, API client (Dio),
+  Riverpod repositories with loading/error/empty states, JWT persisted in secure
+  storage with session restore.
 - Tests: backend API tests (pytest, SQLite in-memory), Flutter widget/unit tests.
 
-### Sprint 2 — Live & Results
-- Normalized `LiveEvent`/`LiveUpdate` model, WebSocket diff streaming, Redis pub/sub.
-- Universal results model + sport-specific renderers. Competition detail pages.
+### Sprint 2 — Live & Results ✅ DONE
+- Normalized `Event`/`Participation`/`Result`/`ResultDetail` +
+  `LiveEvent`/`LiveUpdate` models; `/api/v1/events` + `/api/v1/live` REST.
+- WebSocket diff streaming (`/api/v1/live/ws`) with Redis pub/sub fan-out across
+  replicas, failing open to in-process broadcast; dev-gated live simulator
+  (404 in prod, every frame tagged `source: dev-sim`).
+- Flutter Live Center (WS diffs over a REST base, honest empty state),
+  competition detail → edition schedule → event results, sport-agnostic
+  result renderers (time/distance/points/score + DNS/DNF/DSQ + medal styling).
+- Remaining for later sprints: real provider ingestion (live data today only
+  comes from the dev simulator), result_detail rendering, venue model.
 
 ### Sprint 3 — Personalization & Search
 - Onboarding follows (sports/athletes/countries/competitions), personalized home feed,

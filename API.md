@@ -41,7 +41,21 @@ GET  /api/v1/competitions/{slug}      competition + editions
 GET  /api/v1/home                     data-driven section feed (see below)
 GET  /api/v1/search?q=                categorized results (sports/athletes/
                                       countries/competitions), min 2 chars
+
+GET  /api/v1/events                   ?edition_id=&discipline=&status=  paginated
+GET  /api/v1/events/{id}              detail + normalized results (ranked first)
+GET  /api/v1/live                     events with genuine live coverage (often [])
+WS   /api/v1/live/ws                  snapshot frame, then diff frames
+POST /api/v1/live/dev/simulate        DEV ONLY (404 unless dev fixtures enabled)
 ```
+
+### Live WS protocol
+
+On connect the server sends `{"type": "snapshot", "events": [LiveEventOut…]}`,
+then `{"type": "update", "event_id", "seq", "kind", "payload"}` frames where
+`kind` ∈ `status | progress | results | note`. Simulated dev frames always
+carry `payload.source = "dev-sim"`. Sports/countries list responses are served
+through a fail-open Redis cache (5-minute TTL).
 
 ### Home feed contract
 

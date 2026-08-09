@@ -11,14 +11,32 @@ deliberate double gate so demo data cannot reach production by accident.
 import argparse
 import asyncio
 import sys
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.db.session import get_session_factory
-from app.models import Athlete, Competition, CompetitionEdition, Country, Discipline, Sport
-from app.seed.fixtures import COMPETITIONS, COUNTRIES, DEV_ATHLETES, DEV_BIO_PREFIX
+from app.models import (
+    Athlete,
+    Competition,
+    CompetitionEdition,
+    Country,
+    Discipline,
+    Event,
+    Participation,
+    Result,
+    Sport,
+)
+from app.seed.fixtures import (
+    COMPETITIONS,
+    COUNTRIES,
+    DEV_ATHLETES,
+    DEV_BIO_PREFIX,
+    DEV_EVENTS,
+)
 from app.seed.taxonomy import ICONS, SPORTS
 
 
@@ -109,6 +127,61 @@ async def seed_dev_fixtures(session: AsyncSession) -> int:
         for dcode in dcodes or [sport_code]:
             athlete.disciplines.append(disciplines[dcode])
         session.add(athlete)
+        created += 1
+    await session.flush()
+    await seed_dev_events(session)
+    return created
+
+
+async def seed_dev_events(session: AsyncSession) -> int:
+    """Fictional events/results for the fictional athletes. Idempotent by name."""
+    disciplines = {d.code: d for d in (await session.execute(select(Discipline))).scalars()}
+    athletes = {a.slug: a for a in (await session.execute(select(Athlete))).scalars()}
+    editions = {
+        (e.competition.slug, e.label): e
+        for e in (
+            await session.execute(
+                select(CompetitionEdition).options(
+                    selectinload(CompetitionEdition.competition)
+                )
+            )
+        ).scalars()
+    }
+    existing = {
+        (e.edition_id, e.name) for e in (await session.execute(select(Event))).scalars()
+    }
+    created = 0
+    for (comp_slug, label, dcode, name, gender, phase, start_iso, status,
+         entries) in DEV_EVENTS:
+        edition = editions[(comp_slug, label)]
+        if (edition.id, name) in existing:
+            continue
+        event = Event(
+            edition_id=edition.id,
+            discipline_id=disciplines[dcode].id,
+            name=name,
+            gender=gender,
+            phase=phase,
+            scheduled_start=datetime.fromisoformat(start_iso) if start_iso else None,
+            status=status,
+        )
+        session.add(event)
+        await session.flush()
+        for slug, lane, position, result_status, kind, num, text in entries:
+            participation = Participation(
+                event_id=event.id, athlete_id=athletes[slug].id, lane=lane
+            )
+            session.add(participation)
+            await session.flush()
+            if result_status is not None:
+                session.add(Result(
+                    participation_id=participation.id,
+                    position=position,
+                    status=result_status,
+                    value_kind=kind or "time",
+                    value_num=num,
+                    value_text=text,
+                ))
         created += 1
     return created
 

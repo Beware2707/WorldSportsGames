@@ -108,3 +108,55 @@ DEV_ATHLETES: list[tuple] = [
 ]
 
 DEV_BIO_PREFIX = "[DEV FIXTURE — fictional athlete for development] "
+
+# Fictional development events/results attached to the fictional athletes.
+# (competition_slug, edition_label, discipline_code, name, gender, phase,
+#  scheduled_start iso | None, status,
+#  [(athlete_slug, lane, position, result_status, value_kind, value_num,
+#    value_text)])
+# A None position with result_status None means no result recorded yet.
+DEV_EVENTS: list[tuple] = [
+    (
+        "olympic-games", "Paris 2024", "track-field",
+        "Women's 100m Final", "F", "final", "2024-08-03T19:20:00+00:00", "completed",
+        [
+            ("zellie-dunbar", 4, 1, "ok", "time", 10.71, "10.71"),
+            ("amara-okafor", 5, 2, "ok", "time", 10.84, "10.84"),
+            ("harper-quinlan", 3, None, "DNF", "time", None, None),
+        ],
+    ),
+    (
+        "olympic-games", "Paris 2024", "marathon",
+        "Men's Marathon", "M", "final", "2024-08-10T06:00:00+00:00", "completed",
+        [
+            ("kiptoo-cherop", None, 1, "ok", "time", 7594.0, "2:06:34"),
+            ("tadesse-worku", None, 2, "ok", "time", 7622.0, "2:07:02"),
+            ("dax-merrow", None, 3, "ok", "time", 7784.0, "2:09:44"),
+        ],
+    ),
+    (
+        "olympic-games", "Paris 2024", "swimming",
+        "Women's 200m Freestyle Final", "F", "final",
+        "2024-07-29T18:41:00+00:00", "completed",
+        [
+            ("marlo-tanaka", 4, 1, "ok", "time", 114.92, "1:54.92"),
+            ("harper-quinlan", 5, 2, "ok", "time", 115.30, "1:55.30"),
+        ],
+    ),
+    (
+        "olympic-games", "Paris 2024", "artistic-gymnastics",
+        "Women's All-Around Final", "F", "final",
+        "2024-08-01T16:15:00+00:00", "completed",
+        [
+            ("wei-lin-zhao", None, 1, "ok", "points", 57.566, "57.566"),
+        ],
+    ),
+    (
+        "olympic-games", "LA28", "track-field",
+        "Women's 100m — Round 1", "F", "heat", "2028-07-15T17:00:00+00:00", "scheduled",
+        [
+            ("zellie-dunbar", 4, None, None, None, None, None),
+            ("amara-okafor", 5, None, None, None, None, None),
+        ],
+    ),
+]
