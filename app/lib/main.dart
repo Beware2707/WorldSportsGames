@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'core/i18n/app_strings.dart';
 import 'core/routing/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'features/profile/profile_screen.dart';
@@ -23,6 +24,17 @@ class WorldSportsApp extends ConsumerWidget {
       themeMode: themeMode,
       routerConfig: appRouter,
       debugShowCheckedModeBanner: false,
+      supportedLocales: AppStrings.supportedLocales,
+      // Untranslated locales fall back to English rather than failing.
+      localeResolutionCallback: (locale, supported) =>
+          supported.firstWhere(
+            (l) => l.languageCode == locale?.languageCode,
+            orElse: () => supported.first,
+          ),
+      builder: (context, child) => AppStringsScope(
+        strings: AppStrings.lookup(Localizations.maybeLocaleOf(context)),
+        child: child ?? const SizedBox.shrink(),
+      ),
     );
   }
 }

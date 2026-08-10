@@ -26,7 +26,14 @@ class _LiveBadgeState extends State<LiveBadge>
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    // The pulsing dot conveys "live" visually; screen readers need it said.
+    // excludeSemantics drops the bare "LIVE" glyph so the announcement is the
+    // sentence, not the abbreviation.
+    return Semantics(
+      liveRegion: true,
+      label: 'Live now',
+      excludeSemantics: true,
+      child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: AppColors.live.withValues(alpha: 0.15),
@@ -49,6 +56,7 @@ class _LiveBadgeState extends State<LiveBadge>
                 ),
           ),
         ],
+      ),
       ),
     );
   }
@@ -130,7 +138,7 @@ class EmptyState extends StatelessWidget {
               Text(
                 message!,
                 style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6)),
+                    color: theme.secondaryText),
                 textAlign: TextAlign.center,
               ),
             ],

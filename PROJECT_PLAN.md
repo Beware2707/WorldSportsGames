@@ -105,9 +105,30 @@ interactive sports mini-games, and AI insights — designed sport-agnostic from 
   so an opted-out kind leaves no trace, and `dedupe_key` makes generation
   idempotent across retries.
 
-### Sprint 7 — Hardening
-- Observability, rate limiting, CDN/image pipeline, i18n, accessibility audit,
-  load testing, CI/CD.
+### Sprint 7 — Hardening ✅ DONE
+- Structured JSON logging with credential redaction applied by a filter (so
+  no call site has to remember), request-id correlation echoed in
+  `X-Request-ID`, and per-request latency on every log line.
+- Fixed-window rate limiting on `/auth/login` and `/auth/register` only —
+  unlimited password guessing was the actual risk; read traffic is untouched.
+  In-process, so with N replicas the effective limit is N×; a shared Redis
+  counter is the documented upgrade path.
+- i18n scaffolding: all user-facing strings centralized with plural handling
+  and English fallback for untranslated locales. Timestamps are stored UTC and
+  converted to the device zone in exactly one place.
+- Accessibility: the audit found two real defects — secondary text measured
+  4.42:1 against WCAG AA's 4.5:1 minimum (fixed app-wide via a theme helper),
+  and the LIVE badge announced "LIVE" rather than a sentence. Tap targets and
+  text contrast are now asserted by `meetsGuideline` tests.
+
+### Remaining before a real launch
+- Real provider ingestion: all live/results data still originates from the
+  dev simulator or fixtures. The adapter seam exists; no provider is wired.
+- Push transport (APNs/FCM) behind `NotificationTransport`; only the in-app
+  inbox is delivered today.
+- Social graph, so the Friends leaderboard can be more than honestly empty.
+- Image/CDN pipeline: media rows carry URLs but nothing is resized or cached.
+- Load testing and a staging deploy; CI runs tests but does not deploy.
 
 ## 3. Definition of Done (every sprint)
 - `ruff check` + `mypy` clean; `flutter analyze` clean.

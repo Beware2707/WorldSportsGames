@@ -131,9 +131,8 @@ class _RecordCard extends StatelessWidget {
                             record.country!.flagEmoji!,
                           if (record.location != null) record.location!,
                         ].join(' · '),
-                        style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurface
-                                .withValues(alpha: 0.6)),
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(color: theme.secondaryText),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),

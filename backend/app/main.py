@@ -9,6 +9,8 @@ from app.ai.llm import LLMProvider
 from app.api.v1 import router as v1_router
 from app.core.cache import Cache
 from app.core.config import get_settings
+from app.core.logging import configure_logging
+from app.core.middleware import RateLimitMiddleware, RequestContextMiddleware
 from app.db.session import get_session_factory
 from app.services.live import LiveHub
 
@@ -39,12 +41,23 @@ def _build_ai_provider(settings):
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    configure_logging(settings.log_level)
     app = FastAPI(
         title=settings.app_name,
         version="0.2.0",
         description="Multi-sport platform API — see /docs for the OpenAPI explorer.",
         lifespan=lifespan,
     )
+    # Order matters: the limiter runs before handlers so rejected requests
+    # never touch the database, and the context middleware wraps everything
+    # so even a 429 is logged with its request id.
+    app.add_middleware(
+        RateLimitMiddleware,
+        limit=settings.auth_rate_limit,
+        window_seconds=settings.auth_rate_window_seconds,
+        paths=("/api/v1/auth/login", "/api/v1/auth/register"),
+    )
+    app.add_middleware(RequestContextMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

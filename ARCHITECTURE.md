@@ -107,7 +107,18 @@ These are enforced invariants, not conventions — each has a test that fails if
   CORS allow-list from env, secrets only via environment.
 - **Performance**: keyset-friendly pagination, indexed FK/filter columns,
   `selectinload` to avoid N+1, Redis caching layer (Sprint 2), image CDN-ready URLs.
-- **Observability**: structured JSON logging hooks in `core/logging.py`; latency
-  middleware; error tracking slot (Sentry-compatible) — wired in Sprint 7.
-- **i18n-ready**: user-facing strings centralized; timestamps stored UTC, rendered
-  in device timezone.
+- **Observability**: structured JSON logging (`core/logging.py`), one object per
+  line, with credential redaction applied by the formatter — call sites cannot
+  leak a token by forgetting. `RequestContextMiddleware` assigns a request id,
+  echoes it in `X-Request-ID`, and records latency on every line.
+- **Abuse resistance**: `RateLimitMiddleware` guards the credential endpoints
+  only. It is in-process, so N replicas means N× the limit — a shared Redis
+  counter is the upgrade path, noted rather than hidden.
+- **i18n**: strings centralized in `core/i18n/app_strings.dart` with plural
+  handling; unsupported locales fall back to English rather than rendering
+  blanks. Timestamps are stored UTC and converted to the device zone in
+  `core/i18n/formatting.dart` — the only place that conversion happens.
+- **Accessibility**: muted text goes through `ThemeData.secondaryText`, which
+  clears WCAG AA (the previous 0.6 opacity measured 4.42:1). Tap targets and
+  contrast are asserted by `meetsGuideline` tests, and visual-only signals
+  (the pulsing LIVE badge) carry semantic labels.

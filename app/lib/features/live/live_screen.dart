@@ -268,7 +268,7 @@ class _LiveCard extends StatelessWidget {
                   'update #${coverage.lastSeq}',
                 ].join(' · '),
                 style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6)),
+                    color: theme.secondaryText),
               ),
             ],
           ),

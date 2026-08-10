@@ -336,8 +336,7 @@ class _LiveNowCard extends StatelessWidget {
                 const SizedBox(height: AppSpacing.xs),
                 Text(editionLabel,
                     style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurface
-                            .withValues(alpha: 0.6))),
+                        color: theme.secondaryText)),
               ],
             ),
           ),
@@ -403,7 +402,7 @@ class _EventCard extends StatelessWidget {
                             e.hostCountry!.flagEmoji!,
                         ].join(' · '),
                   style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6)),
+                      color: theme.secondaryText),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -460,7 +459,7 @@ class _AthleteCard extends StatelessWidget {
                         '${athlete.country?.iso3 ?? ''}'
                     .trim(),
                 style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6)),
+                    color: theme.secondaryText),
               ),
             ],
           ),

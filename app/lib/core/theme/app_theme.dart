@@ -22,6 +22,20 @@ abstract final class AppColors {
   static const medalBronze = Color(0xFFCD8A4F);
 }
 
+/// Colour helpers that keep text legible.
+///
+/// Secondary text used to be drawn at 0.6 opacity, which measures 4.42:1
+/// against the light surface — below the WCAG AA minimum of 4.5:1. Every
+/// muted label now goes through here so the ratio is fixed in one place
+/// rather than re-derived (and re-broken) per screen.
+extension AppTextColors on ThemeData {
+  Color get secondaryText =>
+      colorScheme.onSurface.withValues(alpha: 0.75);
+
+  Color get tertiaryText =>
+      colorScheme.onSurface.withValues(alpha: 0.62);
+}
+
 abstract final class AppSpacing {
   static const xs = 4.0;
   static const sm = 8.0;

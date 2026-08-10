@@ -61,16 +61,13 @@ class InsightCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(Icons.info_outline_rounded,
-                    size: 14,
-                    color:
-                        theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+                    size: 14, color: theme.secondaryText),
                 const SizedBox(width: AppSpacing.xs),
                 Expanded(
                   child: Text(
                     insight.disclaimer,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurface
-                            .withValues(alpha: 0.6)),
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: theme.secondaryText),
                   ),
                 ),
               ],
@@ -80,9 +77,8 @@ class InsightCard extends StatelessWidget {
               Text(
                 'Based on: ${insight.basis.join(", ")} · confidence: '
                 '${insight.confidence}',
-                style: theme.textTheme.labelSmall?.copyWith(
-                    color:
-                        theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+                style: theme.textTheme.labelSmall
+                    ?.copyWith(color: theme.tertiaryText),
               ),
             ],
           ],

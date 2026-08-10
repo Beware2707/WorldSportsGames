@@ -32,6 +32,11 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5000",
     ]
 
+    log_level: str = "INFO"
+    # Fixed-window limit for credential endpoints (per client IP).
+    auth_rate_limit: int = 10
+    auth_rate_window_seconds: int = 60
+
     # AI provider. "deterministic" computes insights from recorded results
     # and needs no key; "llm" is opt-in and requires the settings below.
     ai_provider: str = "deterministic"
