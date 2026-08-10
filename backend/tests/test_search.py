@@ -55,3 +55,38 @@ async def test_search_finds_athletes_by_either_name(client):
 
     r = await client.get("/api/v1/search", params={"q": "Cherop"})
     assert [a["slug"] for a in r.json()["athletes"]] == ["kiptoo-cherop"]
+
+
+async def test_suggestions_use_display_labels_not_storage_enums(client):
+    """Raw enum values like 'la28' must never reach the UI."""
+    r = await client.get("/api/v1/search/suggest", params={"q": "cricket"})
+    sport = next(i for i in r.json()["items"] if i["kind"] == "sport")
+    assert sport["sublabel"] == "LA28 addition"
+
+    r = await client.get("/api/v1/search/suggest", params={"q": "olympic games"})
+    comp = next(i for i in r.json()["items"] if i["kind"] == "competition")
+    assert comp["sublabel"] == "Olympic"
+
+
+async def test_suggestions_keep_kinds_from_crowding_each_other_out(client):
+    """A query matching many sports must still surface other kinds."""
+    r = await client.get("/api/v1/search/suggest", params={"q": "a"})
+    kinds = {i["kind"] for i in r.json()["items"]}
+    assert len(kinds) > 1, f"only one kind survived the merge: {kinds}"
+
+
+async def test_prefix_ranking_happens_in_sql_not_after_the_limit(client):
+    """The best prefix match must win even when many rows contain the term.
+
+    'ma' is contained in a dozen sport names; ranking a LIMITed sample in
+    Python would let alphabetically-early contains-matches bury the true
+    prefix match ("Marathon Swimming" is a discipline, "Modern Pentathlon"
+    contains 'ma', etc.).
+    """
+    r = await client.get("/api/v1/search/suggest", params={"q": "ma"})
+    labels = [i["label"] for i in r.json()["items"]]
+    prefixed = [x for x in labels if x.lower().startswith("ma")]
+    assert prefixed, f"no prefix match surfaced at all: {labels}"
+    assert labels[0].lower().startswith("ma"), (
+        f"a contains-match outranked a prefix match: {labels}"
+    )

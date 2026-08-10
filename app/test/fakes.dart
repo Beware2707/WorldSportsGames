@@ -218,15 +218,27 @@ class FakeLiveSocket implements LiveSocket {
 
 /// In-memory personalization backend for follow/onboarding/search tests.
 class FakePersonalizationRepository implements PersonalizationRepository {
-  FakePersonalizationRepository({this.failWith});
+  FakePersonalizationRepository({this.failWith, this.failWritesWith});
 
+  /// Fails every call, including the initial load.
   final Exception? failWith;
+
+  /// Loads succeed; only mutations fail — the case where an optimistic UI
+  /// update must be rolled back.
+  final Exception? failWritesWith;
+
   final List<Follow> stored = [];
   List<SearchSuggestion> suggestions = const [];
   int followCalls = 0;
 
   void _maybeThrow() {
     final e = failWith;
+    if (e != null) throw e;
+  }
+
+  void _maybeThrowOnWrite() {
+    _maybeThrow();
+    final e = failWritesWith;
     if (e != null) throw e;
   }
 
@@ -239,7 +251,7 @@ class FakePersonalizationRepository implements PersonalizationRepository {
   @override
   Future<List<Follow>> follow(FollowKind kind, int entityId) async {
     followCalls++;
-    _maybeThrow();
+    _maybeThrowOnWrite();
     if (!stored.any((f) => f.kind == kind && f.entityId == entityId)) {
       stored.add(Follow(kind: kind, entityId: entityId, name: 'Entity $entityId'));
     }
@@ -249,7 +261,7 @@ class FakePersonalizationRepository implements PersonalizationRepository {
   @override
   Future<void> unfollow(FollowKind kind, int entityId) async {
     followCalls++;
-    _maybeThrow();
+    _maybeThrowOnWrite();
     stored.removeWhere((f) => f.kind == kind && f.entityId == entityId);
   }
 

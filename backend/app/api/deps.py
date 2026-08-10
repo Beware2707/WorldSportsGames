@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,11 +11,6 @@ from app.models import AppUser
 from app.repositories.user import get_user_by_id
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
-# auto_error=False: endpoints that personalize for signed-in users but stay
-# fully usable anonymously (the home feed) must not 401 without a token.
-optional_oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl="/api/v1/auth/login", auto_error=False
-)
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
@@ -40,14 +35,23 @@ CurrentUser = Annotated[AppUser, Depends(get_current_user)]
 
 
 async def get_optional_user(
-    session: DbSession, token: Annotated[str | None, Depends(optional_oauth2_scheme)]
+    session: DbSession,
+    authorization: Annotated[str | None, Header()] = None,
 ) -> AppUser | None:
     """Current user when a valid token is supplied, else None.
 
     An invalid or expired token is treated as anonymous rather than an error:
     personalized-but-public endpoints should degrade to the generic response.
+
+    Reads the raw header rather than using an ``OAuth2PasswordBearer(auto_error=
+    False)`` dependency: that is still a *security scheme*, so FastAPI would
+    stamp a ``security`` requirement onto the route and generated clients would
+    treat this public endpoint as auth-required.
     """
-    if token is None:
+    if authorization is None:
+        return None
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
         return None
     subject = decode_access_token(token)
     if subject is None or not subject.isdigit():

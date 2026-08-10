@@ -25,7 +25,7 @@ class _NotificationSettingsScreenState
     extends ConsumerState<NotificationSettingsScreen> {
   bool _saving = false;
 
-  Future<void> _toggle(List<NotificationSetting> current, String kind, bool value) async {
+  Future<void> _toggle(String kind, bool value) async {
     setState(() => _saving = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
@@ -35,11 +35,13 @@ class _NotificationSettingsScreenState
             [NotificationSetting(kind: kind, enabled: value)],
           );
       if (!mounted) return;
-      // Server response is authoritative — never assume the write landed.
+      // The server response is authoritative: confirm it actually applied
+      // rather than assuming the write landed, then refetch.
+      final applied = updated.where((s) => s.kind == kind).firstOrNull;
       ref.invalidate(notificationSettingsProvider);
-      if (updated.isEmpty) {
+      if (applied == null || applied.enabled != value) {
         messenger.showSnackBar(
-          const SnackBar(content: Text('Could not save that preference')),
+          const SnackBar(content: Text('That preference could not be saved')),
         );
       }
     } on ApiException catch (e) {
@@ -74,9 +76,8 @@ class _NotificationSettingsScreenState
               SwitchListTile(
                 title: Text(setting.label),
                 value: setting.enabled,
-                onChanged: _saving
-                    ? null
-                    : (value) => _toggle(items, setting.kind, value),
+                onChanged:
+                    _saving ? null : (value) => _toggle(setting.kind, value),
               ),
           ],
         ),

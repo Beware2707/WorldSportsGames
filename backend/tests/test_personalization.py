@@ -234,3 +234,43 @@ async def test_follows_are_per_user(client, headers):
     other_headers = {"Authorization": f"Bearer {r.json()['access_token']}"}
 
     assert (await client.get("/api/v1/users/me/favorites", headers=other_headers)).json() == []
+
+
+async def test_home_is_documented_as_public_in_openapi(client):
+    """A generated client must not treat the public feed as auth-required."""
+    spec = (await client.get("/openapi.json")).json()
+    home = spec["paths"]["/api/v1/home"]["get"]
+    assert "security" not in home, "personalized-but-public route must not require auth"
+
+    # Routes that genuinely require auth still declare it.
+    favorites = spec["paths"]["/api/v1/users/me/favorites"]["get"]
+    assert favorites.get("security"), "follow routes must be documented as protected"
+
+
+async def test_explicit_athlete_follows_outrank_country_derived_ones(client, headers):
+    """A followed country must not crowd out deliberately followed athletes."""
+    countries = (await client.get("/api/v1/countries", params={"size": 100})).json()
+    usa = next(c for c in countries["items"] if c["iso3"] == "USA")
+    ethiopia = next(c for c in countries["items"] if c["iso3"] == "ETH")
+    worku = await _athlete_id(client, "tadesse-worku")  # ETH
+
+    await client.put(
+        "/api/v1/users/me/favorites",
+        json={
+            "favorites": [
+                {"entity_type": "athlete", "entity_id": worku},
+                {"entity_type": "country", "entity_id": usa["id"]},
+                {"entity_type": "country", "entity_id": ethiopia["id"]},
+            ]
+        },
+        headers=headers,
+    )
+    sections = {
+        s["kind"]: s
+        for s in (await client.get("/api/v1/home", headers=headers)).json()["sections"]
+    }
+    slugs = [a["slug"] for a in sections["your_athletes"]["items"]]
+    assert slugs[0] == "tadesse-worku", (
+        "the explicitly followed athlete must lead, not be sorted among "
+        f"country-derived ones: {slugs}"
+    )

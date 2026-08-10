@@ -49,6 +49,22 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   final _controller = PageController();
   int _step = 0;
   bool _saving = false;
+  bool _seeded = false;
+
+  /// Seed the picker with what the user already follows.
+  ///
+  /// Submitting is a full replace (`PUT /users/me/favorites`), so starting
+  /// from an empty set would delete every existing follow the moment the user
+  /// finished. Profile links back into this screen, so re-entry is normal and
+  /// must behave as an edit, not a reset.
+  void _seedFromExistingFollows(List<Follow> follows) {
+    if (_seeded) return;
+    _seeded = true;
+    for (final follow in follows) {
+      _selected[(follow.kind, follow.entityId)] =
+          follow.name ?? '#${follow.entityId}';
+    }
+  }
 
   static const _steps = [
     (FollowKind.sport, 'Pick your sports', 'Follow the sports you care about.'),
@@ -76,6 +92,15 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         }
       });
 
+  void _leaveWithoutSaving() {
+    final router = GoRouter.of(context);
+    if (router.canPop()) {
+      router.pop();
+    } else {
+      router.go('/home');
+    }
+  }
+
   Future<void> _finish() async {
     setState(() => _saving = true);
     final messenger = ScaffoldMessenger.of(context);
@@ -86,7 +111,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           Follow(kind: entry.key.$1, entityId: entry.key.$2, name: entry.value),
       ]);
       ref.invalidate(followsProvider);
-      router.go('/home');
+      if (router.canPop()) {
+        router.pop();
+      } else {
+        router.go('/home');
+      }
     } on ApiException catch (e) {
       messenger.showSnackBar(SnackBar(content: Text(e.message)));
     } finally {
@@ -96,15 +125,21 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Pre-select existing follows exactly once, as soon as they arrive.
+    final existing = ref.watch(followsProvider).value;
+    if (existing != null) _seedFromExistingFollows(existing);
+
     final (kind, title, subtitle) = _steps[_step];
     final isLast = _step == _steps.length - 1;
     return Scaffold(
       appBar: AppBar(
         title: Text('Step ${_step + 1} of ${_steps.length}'),
         actions: [
+          // Leaves without saving. Submitting is destructive (full replace),
+          // so "skip" must never write.
           TextButton(
-            onPressed: _saving ? null : _finish,
-            child: Text(_selected.isEmpty ? 'Skip' : 'Done'),
+            onPressed: _saving ? null : () => _leaveWithoutSaving(),
+            child: const Text('Skip'),
           ),
         ],
         bottom: PreferredSize(

@@ -13,7 +13,9 @@ import '../profile/profile_screen.dart';
 final homeFeedProvider = FutureProvider.autoDispose<List<HomeSection>>(
   (ref) {
     ref.watch(currentUserProvider);
-    ref.watch(followsProvider);
+    // The follow *set*, not the AsyncValue — an optimistic write and the
+    // server's identical confirmation must not cost two refetches.
+    ref.watch(followKeyProvider);
     return ref.watch(catalogRepositoryProvider).homeFeed();
   },
   retry: (count, error) => null,

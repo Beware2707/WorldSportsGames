@@ -73,8 +73,9 @@ void main() {
 
   testWidgets('a failed follow rolls the optimistic update back',
       (tester) async {
-    final repo =
-        FakePersonalizationRepository(failWith: const ApiException('offline'));
+    // Load succeeds, write fails — the case that needs a rollback.
+    final repo = FakePersonalizationRepository(
+        failWritesWith: const ApiException('offline'));
     await tester.pumpWidget(_wrap(repo));
     await tester.pumpAndSettle();
 
@@ -95,4 +96,20 @@ void main() {
       isNull,
     );
   });
+
+  testWidgets('a failed load does not fabricate an empty follow list',
+      (tester) async {
+    // With no known-good list, toggling must refetch rather than invent state.
+    final repo =
+        FakePersonalizationRepository(failWith: const ApiException('down'));
+    await tester.pumpWidget(_wrap(repo));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Follow'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Following'), findsNothing,
+        reason: 'must not claim a follow that was never written');
+  });
+
 }

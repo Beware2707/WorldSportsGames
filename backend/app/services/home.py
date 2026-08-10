@@ -1,4 +1,4 @@
-from sqlalchemy import or_, select
+from sqlalchemy import case, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -105,13 +105,19 @@ async def _followed_sections(session: AsyncSession, user_id: int) -> list[HomeSe
             conditions.append(Athlete.id.in_(athlete_ids))
         if country_ids:
             conditions.append(Athlete.country_id.in_(country_ids))
+        # Explicitly followed athletes rank ahead of country-derived ones:
+        # a country with many athletes must not push the athletes the user
+        # deliberately followed out of the limited section.
+        priority = (
+            case((Athlete.id.in_(athlete_ids), 0), else_=1) if athlete_ids else literal(0)
+        )
         rows = (
             (
                 await session.execute(
                     select(Athlete)
                     .where(or_(*conditions))
                     .options(selectinload(Athlete.country))
-                    .order_by(Athlete.family_name)
+                    .order_by(priority, Athlete.family_name)
                     .limit(_FOLLOW_SECTION_LIMIT)
                 )
             )

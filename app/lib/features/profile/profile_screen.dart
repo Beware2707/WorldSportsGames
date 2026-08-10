@@ -115,9 +115,21 @@ class _FollowingCard extends ConsumerWidget {
                       for (final follow in entry.value)
                         InputChip(
                           label: Text(follow.name ?? '#${follow.entityId}'),
-                          onDeleted: () => ref
-                              .read(followsProvider.notifier)
-                              .toggle(follow.kind, follow.entityId),
+                          // Awaited and caught: toggle() rethrows after
+                          // rolling back, so a fire-and-forget call would
+                          // surface as an uncaught async error with no
+                          // feedback to the user.
+                          onDeleted: () async {
+                            final messenger = ScaffoldMessenger.of(context);
+                            try {
+                              await ref
+                                  .read(followsProvider.notifier)
+                                  .toggle(follow.kind, follow.entityId);
+                            } on ApiException catch (e) {
+                              messenger.showSnackBar(
+                                  SnackBar(content: Text(e.message)));
+                            }
+                          },
                           deleteIcon: const Icon(Icons.close_rounded, size: 18),
                         ),
                     ],
