@@ -245,3 +245,42 @@ DEV_RANKINGS: list[tuple] = [
 ]
 
 RANKING_AS_OF = "2026-08-01"
+
+# Game catalogue — REFERENCE tier: these are the platform's own mini-games,
+# not fictional sports data, so they seed in every environment.
+# (code, name, tagline, engine, sport_code|None, config, direction, unit, order)
+GAMES: list[tuple] = [
+    ("sprint-reaction", "100m Reaction", "Beat the gun, not the field.",
+     "reaction", "athletics", {"rounds": 5}, "lower_better", "ms", 0),
+    ("swim-start", "Swim Start", "React to the beep off the blocks.",
+     "reaction", "aquatics", {"rounds": 5}, "lower_better", "ms", 1),
+    ("penalty-shootout", "Penalty Challenge", "Pick your corner and strike.",
+     "accuracy", "football", {"attempts": 5, "targets": 6}, "higher_better",
+     "goals", 2),
+    ("free-throw", "Basketball Shooting", "Sink as many as you can.",
+     "accuracy", "basketball", {"attempts": 10}, "higher_better", "baskets", 3),
+    ("archery-gold", "Archery Accuracy", "Hold steady, hit the gold.",
+     "accuracy", "archery", {"arrows": 6, "rings": 10}, "higher_better",
+     "points", 4),
+    ("tennis-serve", "Tennis Serve", "Time the toss, land the ace.",
+     "timing", "tennis", {"serves": 5}, "higher_better", "points", 5),
+    ("cricket-timing", "Cricket Batting", "Time the shot to clear the rope.",
+     "timing", "cricket", {"balls": 6}, "higher_better", "runs", 6),
+    ("ski-gates", "Ski Racing", "Carve the gates in order.",
+     "sequence", "alpine-skiing", {"gates": 8}, "higher_better", "gates", 7),
+]
+
+# (code, name, description, trigger, threshold, game_code|None)
+ACHIEVEMENTS: list[tuple] = [
+    ("first-play", "First Whistle", "Play your first game.",
+     "game_sessions", 1, None),
+    ("ten-plays", "Regular", "Play ten games.", "game_sessions", 10, None),
+    ("xp-500", "Rising Star", "Earn 500 XP.", "total_xp", 500, None),
+    ("xp-2000", "Podium Finisher", "Earn 2,000 XP.", "total_xp", 2000, None),
+    ("streak-3", "On a Roll", "Play three days in a row.", "streak_days", 3, None),
+    ("streak-7", "Week Warrior", "Play seven days in a row.", "streak_days", 7, None),
+    ("quick-draw", "Quick Draw", "React in under 220ms.",
+     "game_score", 220, "sprint-reaction"),
+    ("perfect-penalties", "Perfect Five", "Score all five penalties.",
+     "game_score", 5, "penalty-shootout"),
+]

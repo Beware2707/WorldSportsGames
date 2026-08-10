@@ -20,12 +20,14 @@ from sqlalchemy.orm import selectinload
 from app.core.config import get_settings
 from app.db.session import get_session_factory
 from app.models import (
+    Achievement,
     Athlete,
     Competition,
     CompetitionEdition,
     Country,
     Discipline,
     Event,
+    Game,
     Medal,
     Participation,
     Ranking,
@@ -34,6 +36,7 @@ from app.models import (
     Sport,
 )
 from app.seed.fixtures import (
+    ACHIEVEMENTS,
     COMPETITIONS,
     COUNTRIES,
     DEV_ATHLETES,
@@ -42,6 +45,7 @@ from app.seed.fixtures import (
     DEV_MEDALS,
     DEV_RANKINGS,
     DEV_RECORDS,
+    GAMES,
     RANKING_AS_OF,
 )
 from app.seed.taxonomy import ICONS, SPORTS
@@ -71,6 +75,40 @@ async def seed_taxonomy(session: AsyncSession) -> int:
         for dcode, dname in wanted:
             if dcode not in have:
                 session.add(Discipline(sport_id=sport.id, code=dcode, name=dname))
+    return created
+
+
+async def seed_games(session: AsyncSession) -> int:
+    """The platform's own mini-games and achievements (reference tier)."""
+    existing = {g.code: g for g in (await session.execute(select(Game))).scalars()}
+    sports = {s.code: s for s in (await session.execute(select(Sport))).scalars()}
+    created = 0
+    for code, name, tagline, engine, sport_code, config, direction, unit, order in GAMES:
+        game = existing.get(code)
+        if game is None:
+            session.add(Game(
+                code=code, name=name, tagline=tagline, engine=engine,
+                sport_id=sports[sport_code].id if sport_code else None,
+                config=config, score_direction=direction, score_unit=unit,
+                sort_order=order,
+            ))
+            created += 1
+        else:
+            game.name, game.tagline, game.engine = name, tagline, engine
+            game.config, game.score_direction = config, direction
+            game.score_unit, game.sort_order = unit, order
+    await session.flush()
+
+    games = {g.code: g for g in (await session.execute(select(Game))).scalars()}
+    have = {a.code for a in (await session.execute(select(Achievement))).scalars()}
+    for code, name, description, trigger, threshold, game_code in ACHIEVEMENTS:
+        if code in have:
+            continue
+        session.add(Achievement(
+            code=code, name=name, description=description, trigger=trigger,
+            threshold=threshold,
+            game_id=games[game_code].id if game_code else None,
+        ))
     return created
 
 
@@ -272,6 +310,8 @@ async def main(with_fixtures: bool) -> None:
     async with get_session_factory()() as session:
         new_sports = await seed_taxonomy(session)
         await seed_reference(session)
+        new_games = await seed_games(session)
+        print(f"Games: {new_games} new mini-games (idempotent).")
         print(f"Taxonomy: {new_sports} new sports (idempotent). Reference catalogue seeded.")
         if with_fixtures:
             if not settings.enable_dev_fixtures:

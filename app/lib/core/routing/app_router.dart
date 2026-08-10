@@ -9,7 +9,9 @@ import '../../features/competitions/competition_detail_screen.dart';
 import '../../features/competitions/competitions_screen.dart';
 import '../../features/competitions/edition_events_screen.dart';
 import '../../features/events/event_detail_screen.dart';
+import '../../features/games/game_play_screen.dart';
 import '../../features/games/games_screen.dart';
+import '../../features/games/leaderboard_screen.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/live/live_screen.dart';
 import '../../features/onboarding/onboarding_screen.dart';
@@ -114,7 +116,24 @@ final appRouter = GoRouter(
           ),
         ]),
         StatefulShellBranch(routes: [
-          GoRoute(path: '/games', builder: (_, _) => const GamesScreen()),
+          GoRoute(
+            path: '/games',
+            builder: (_, _) => const GamesScreen(),
+            routes: [
+              GoRoute(
+                path: ':code',
+                builder: (_, state) =>
+                    GamePlayScreen(code: state.pathParameters['code']!),
+                routes: [
+                  GoRoute(
+                    path: 'leaderboard',
+                    builder: (_, state) =>
+                        LeaderboardScreen(code: state.pathParameters['code']!),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ]),
         StatefulShellBranch(routes: [
           GoRoute(path: '/profile', builder: (_, _) => const ProfileScreen()),

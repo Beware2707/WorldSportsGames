@@ -20,7 +20,12 @@ from app.core.config import get_settings  # noqa: E402
 from app.db.base import Base  # noqa: E402
 from app.db.session import get_db  # noqa: E402
 from app.main import create_app  # noqa: E402
-from app.seed.run import seed_dev_fixtures, seed_reference, seed_taxonomy  # noqa: E402
+from app.seed.run import (  # noqa: E402
+    seed_dev_fixtures,
+    seed_games,
+    seed_reference,
+    seed_taxonomy,
+)
 
 get_settings.cache_clear()
 
@@ -34,6 +39,7 @@ async def db_sessionmaker():
     async with factory() as session:
         await seed_taxonomy(session)
         await seed_reference(session)
+        await seed_games(session)
         await seed_dev_fixtures(session)
         await session.commit()
     yield factory

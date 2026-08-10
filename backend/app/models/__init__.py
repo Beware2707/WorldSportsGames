@@ -3,6 +3,13 @@ from app.models.catalog import Country, Discipline, Sport
 from app.models.competition import Competition, CompetitionEdition
 from app.models.competitive import Medal, Ranking, Record, Team, Venue
 from app.models.event import Event, Participation, Result, ResultDetail
+from app.models.games import (
+    Achievement,
+    Game,
+    GameSession,
+    UserAchievement,
+    UserProgress,
+)
 from app.models.live import LiveEvent, LiveUpdate
 from app.models.user import (
     AppUser,
@@ -12,6 +19,7 @@ from app.models.user import (
 )
 
 __all__ = [
+    "Achievement",
     "AppUser",
     "Athlete",
     "Competition",
@@ -20,6 +28,8 @@ __all__ = [
     "Discipline",
     "Event",
     "Favorite",
+    "Game",
+    "GameSession",
     "LiveEvent",
     "LiveUpdate",
     "Medal",
@@ -31,7 +41,9 @@ __all__ = [
     "ResultDetail",
     "Sport",
     "Team",
+    "UserAchievement",
     "UserPreference",
+    "UserProgress",
     "Venue",
     "athlete_discipline",
 ]
