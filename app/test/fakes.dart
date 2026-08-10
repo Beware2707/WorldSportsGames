@@ -1,10 +1,12 @@
 import 'dart:async';
 
 import 'package:world_sports_games/data/live_repository.dart';
+import 'package:world_sports_games/data/personalization_repository.dart';
 import 'package:world_sports_games/data/repositories.dart';
 import 'package:world_sports_games/data/token_store.dart';
 import 'package:world_sports_games/domain/event_models.dart';
 import 'package:world_sports_games/domain/models.dart';
+import 'package:world_sports_games/domain/personalization_models.dart';
 
 class FakeCatalogRepository implements CatalogRepository {
   FakeCatalogRepository({this.failWith});
@@ -28,6 +30,15 @@ class FakeCatalogRepository implements CatalogRepository {
     return category == null
         ? sports
         : sports.where((s) => s.category == category).toList();
+  }
+
+  @override
+  Future<List<Country>> listCountries() async {
+    _maybeThrow();
+    return const [
+      Country(id: 1, iso3: 'USA', name: 'United States', flagEmoji: '🇺🇸'),
+      Country(id: 2, iso3: 'KEN', name: 'Kenya', flagEmoji: '🇰🇪'),
+    ];
   }
 
   @override
@@ -202,6 +213,82 @@ class FakeLiveSocket implements LiveSocket {
   @override
   void close() {
     closed = true;
+  }
+}
+
+/// In-memory personalization backend for follow/onboarding/search tests.
+class FakePersonalizationRepository implements PersonalizationRepository {
+  FakePersonalizationRepository({this.failWith});
+
+  final Exception? failWith;
+  final List<Follow> stored = [];
+  List<SearchSuggestion> suggestions = const [];
+  int followCalls = 0;
+
+  void _maybeThrow() {
+    final e = failWith;
+    if (e != null) throw e;
+  }
+
+  @override
+  Future<List<Follow>> follows() async {
+    _maybeThrow();
+    return List.of(stored);
+  }
+
+  @override
+  Future<List<Follow>> follow(FollowKind kind, int entityId) async {
+    followCalls++;
+    _maybeThrow();
+    if (!stored.any((f) => f.kind == kind && f.entityId == entityId)) {
+      stored.add(Follow(kind: kind, entityId: entityId, name: 'Entity $entityId'));
+    }
+    return List.of(stored);
+  }
+
+  @override
+  Future<void> unfollow(FollowKind kind, int entityId) async {
+    followCalls++;
+    _maybeThrow();
+    stored.removeWhere((f) => f.kind == kind && f.entityId == entityId);
+  }
+
+  @override
+  Future<List<Follow>> setFollows(List<Follow> follows) async {
+    _maybeThrow();
+    stored
+      ..clear()
+      ..addAll(follows);
+    return List.of(stored);
+  }
+
+  @override
+  Future<OnboardingState> onboardingState() async {
+    _maybeThrow();
+    return OnboardingState(
+        completed: stored.isNotEmpty, followCount: stored.length);
+  }
+
+  @override
+  Future<List<NotificationSetting>> notificationSettings() async {
+    _maybeThrow();
+    return const [
+      NotificationSetting(kind: 'medal_result', enabled: true),
+      NotificationSetting(kind: 'breaking_news', enabled: true),
+    ];
+  }
+
+  @override
+  Future<List<NotificationSetting>> updateNotificationSettings(
+      List<NotificationSetting> settings) async {
+    _maybeThrow();
+    return settings;
+  }
+
+  @override
+  Future<List<SearchSuggestion>> suggest(String query) async {
+    _maybeThrow();
+    return suggestions;
   }
 }
 

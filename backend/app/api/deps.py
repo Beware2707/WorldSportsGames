@@ -11,6 +11,11 @@ from app.models import AppUser
 from app.repositories.user import get_user_by_id
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+# auto_error=False: endpoints that personalize for signed-in users but stay
+# fully usable anonymously (the home feed) must not 401 without a token.
+optional_oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl="/api/v1/auth/login", auto_error=False
+)
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
@@ -32,6 +37,26 @@ async def get_current_user(
 
 
 CurrentUser = Annotated[AppUser, Depends(get_current_user)]
+
+
+async def get_optional_user(
+    session: DbSession, token: Annotated[str | None, Depends(optional_oauth2_scheme)]
+) -> AppUser | None:
+    """Current user when a valid token is supplied, else None.
+
+    An invalid or expired token is treated as anonymous rather than an error:
+    personalized-but-public endpoints should degrade to the generic response.
+    """
+    if token is None:
+        return None
+    subject = decode_access_token(token)
+    if subject is None or not subject.isdigit():
+        return None
+    user = await get_user_by_id(session, int(subject))
+    return user if user is not None and user.is_active else None
+
+
+OptionalUser = Annotated["AppUser | None", Depends(get_optional_user)]
 
 
 def require_dev_mode() -> None:

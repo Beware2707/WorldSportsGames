@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/common.dart';
 import '../../domain/models.dart';
+import '../search/search_screen.dart';
 import 'home_providers.dart';
 
 class HomeScreen extends ConsumerWidget {
@@ -14,7 +15,10 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final feed = ref.watch(homeFeedProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('World Sports')),
+      appBar: AppBar(
+        title: const Text('World Sports'),
+        actions: const [SearchIconButton()],
+      ),
       body: RefreshIndicator(
         onRefresh: () => ref.refresh(homeFeedProvider.future),
         child: feed.when(
@@ -45,8 +49,10 @@ class _HomeSectionView extends StatelessWidget {
   Widget build(BuildContext context) {
     final body = switch (section.kind) {
       'live_now' => _liveNow(context),
-      'up_next' || 'featured_competitions' => _cardsRow(context),
-      'athlete_spotlight' => _athleteRow(context),
+      'up_next' || 'featured_competitions' || 'following_schedule' =>
+        _cardsRow(context),
+      'athlete_spotlight' || 'your_athletes' => _athleteRow(context),
+      'your_sports' => _sportRow(context),
       // Unknown kinds from newer servers degrade gracefully to nothing.
       _ => const SizedBox.shrink(),
     };
@@ -60,8 +66,10 @@ class _HomeSectionView extends StatelessWidget {
       return const SizedBox.shrink();
     }
     final seeAllRoute = switch (section.kind) {
-      'featured_competitions' || 'up_next' => '/home/competitions',
-      'athlete_spotlight' => '/home/athletes',
+      'featured_competitions' || 'up_next' || 'following_schedule' =>
+        '/home/competitions',
+      'athlete_spotlight' || 'your_athletes' => '/home/athletes',
+      'your_sports' => '/sports',
       _ => null,
     };
     return Column(
@@ -143,6 +151,46 @@ class _HomeSectionView extends StatelessWidget {
           final competition =
               edition?.competition ?? Competition.fromJson(item);
           return _EventCard(edition: edition, competition: competition);
+        },
+      ),
+    );
+  }
+
+  Widget _sportRow(BuildContext context) {
+    return SizedBox(
+      height: 96,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+        itemCount: section.items.length,
+        separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
+        itemBuilder: (context, i) {
+          final sport = Sport.fromJson(section.items[i]);
+          return SizedBox(
+            width: 150,
+            child: Card(
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: () => GoRouter.of(context).go('/sports/${sport.code}'),
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  child: Row(
+                    children: [
+                      Icon(sportIcon(sport.icon),
+                          color: Theme.of(context).colorScheme.primary),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: Text(sport.name,
+                            style: Theme.of(context).textTheme.titleSmall,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
         },
       ),
     );

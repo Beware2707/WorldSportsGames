@@ -6,6 +6,9 @@ import '../../core/widgets/common.dart';
 import '../../core/widgets/paged_list.dart';
 import '../../data/repositories.dart';
 import '../../domain/models.dart';
+import '../../domain/personalization_models.dart';
+import '../follows/follow_button.dart';
+import '../search/search_screen.dart';
 
 /// Paged athlete list. retry: null — errors surface with manual retry.
 final athletesPageProvider =
@@ -28,7 +31,10 @@ class _AthletesScreenState extends ConsumerState<AthletesScreen> {
   Widget build(BuildContext context) {
     final athletes = ref.watch(athletesPageProvider(_page));
     return Scaffold(
-      appBar: AppBar(title: const Text('Athletes')),
+      appBar: AppBar(
+        title: const Text('Athletes'),
+        actions: const [SearchIconButton()],
+      ),
       body: athletes.when(
         loading: () => const SkeletonList(),
         error: (e, _) => ErrorState(
@@ -60,6 +66,12 @@ class _AthletesScreenState extends ConsumerState<AthletesScreen> {
                                 athlete.country?.flagEmoji,
                                 athlete.country?.name,
                               ].whereType<String>().join(' ')),
+                              trailing: FollowButton(
+                                kind: FollowKind.athlete,
+                                entityId: athlete.id,
+                                name: athlete.fullName,
+                                compact: true,
+                              ),
                             ),
                           ),
                         );

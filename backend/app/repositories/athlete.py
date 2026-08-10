@@ -2,6 +2,7 @@ from sqlalchemy import Select, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.text import LIKE_ESCAPE, like_pattern
 from app.models import Athlete, Country, Discipline, Sport, athlete_discipline
 
 
@@ -26,9 +27,13 @@ def athletes_query(
             Country.iso3 == country.upper()
         )
     if q:
-        pattern = f"%{q}%"
+        # Escaped: a bare "%" must be a literal, not "match every athlete".
+        pattern = like_pattern(q)
         query = query.where(
-            or_(Athlete.given_name.ilike(pattern), Athlete.family_name.ilike(pattern))
+            or_(
+                Athlete.given_name.ilike(pattern, escape=LIKE_ESCAPE),
+                Athlete.family_name.ilike(pattern, escape=LIKE_ESCAPE),
+            )
         )
 
     if sort == "-name":

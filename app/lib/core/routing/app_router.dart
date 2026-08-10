@@ -9,7 +9,10 @@ import '../../features/events/event_detail_screen.dart';
 import '../../features/games/games_screen.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/live/live_screen.dart';
+import '../../features/onboarding/onboarding_screen.dart';
 import '../../features/profile/profile_screen.dart';
+import '../../features/search/search_screen.dart';
+import '../../features/settings/notification_settings_screen.dart';
 import '../../features/sports/sport_detail_screen.dart';
 import '../../features/sports/sports_screen.dart';
 import '../widgets/common.dart';
@@ -17,6 +20,13 @@ import '../widgets/common.dart';
 final appRouter = GoRouter(
   initialLocation: '/home',
   routes: [
+    // Full-screen routes outside the bottom-nav shell.
+    GoRoute(path: '/onboarding', builder: (_, _) => const OnboardingScreen()),
+    GoRoute(path: '/search', builder: (_, _) => const SearchScreen()),
+    GoRoute(
+      path: '/settings/notifications',
+      builder: (_, _) => const NotificationSettingsScreen(),
+    ),
     StatefulShellRoute.indexedStack(
       builder: (context, state, shell) => _AppShell(shell: shell),
       branches: [

@@ -63,12 +63,25 @@ interactive sports mini-games, and AI insights — designed sport-agnostic from 
 - Remaining for later sprints: real provider ingestion (live data today only
   comes from the dev simulator), result_detail rendering, venue model.
 
-### Sprint 3 — Personalization & Search
-- Onboarding follows (sports/athletes/countries/competitions), personalized home feed,
-  global search with categorized autocomplete, notification preferences.
+### Sprint 3 — Personalization & Search ✅ DONE
+- Follows (`Favorite`) for sports/athletes/countries/competitions with CRUD +
+  bulk-set, entity existence validated on every write, per-user isolation.
+- Personalized home feed: `GET /api/v1/home` takes an *optional* token and
+  inserts "Your Athletes / Your Sports / Your Competitions" after Live Now;
+  anonymous and stale-token callers get the generic feed, never a 401.
+- Onboarding: 4-step picker, every step skippable, submits the whole selection.
+- Global search: categorized results plus ranked `/search/suggest` autocomplete
+  (prefix matches first), LIKE wildcards escaped everywhere user input reaches
+  `ilike` so `%` can no longer mean "match everything".
+- Notification preferences: opt-out model (absence = enabled) with a settings
+  screen. Delivery itself is Sprint 6 — the UI says so rather than implying
+  notifications already send.
 
-### Sprint 4 — Rankings, Records, Countries
+### Sprint 4 — Rankings, Records, Countries (next)
+
 - Ranking methodologies per sport, records system, country profiles + medal tables.
+- Athlete and country profile screens (search suggests them today but says
+  "coming soon" rather than navigating somewhere misleading).
 
 ### Sprint 5 — Games Engine
 - Modular mini-game engine (reaction/timing/accuracy primitives), XP/levels/

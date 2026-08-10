@@ -42,6 +42,16 @@ GET  /api/v1/home                     data-driven section feed (see below)
 GET  /api/v1/search?q=                categorized results (sports/athletes/
                                       countries/competitions), min 2 chars
 
+GET  /api/v1/search/suggest?q=        ranked autocomplete (prefix first)
+
+GET    /api/v1/users/me/favorites             follows, with display labels
+POST   /api/v1/users/me/favorites             follow one (idempotent)
+DELETE /api/v1/users/me/favorites/{type}/{id} unfollow (idempotent)
+PUT    /api/v1/users/me/favorites             replace the set (onboarding)
+GET    /api/v1/users/me/onboarding            {completed, follow_count}
+GET    /api/v1/users/me/notifications         every kind + enabled
+PUT    /api/v1/users/me/notifications         partial update, returns all
+
 GET  /api/v1/events                   ?edition_id=&discipline=&status=  paginated
 GET  /api/v1/events/{id}              detail + normalized results (ranked first)
 GET  /api/v1/live                     events with genuine live coverage (often [])
@@ -79,8 +89,18 @@ without app releases:
 ] }
 ```
 
-`live_now` is empty until real live ingestion exists (Sprint 2) — the client shows
-an honest empty state, never simulated live data.
+`live_now` reads `LiveEvent` rows only — the client shows an honest empty state
+rather than simulated live data.
+
+**Personalization.** `/home` accepts an *optional* bearer token. With one, the
+server inserts `your_athletes`, `your_sports` and `following_schedule` sections
+after `live_now`; without one — or with an expired token — it returns the generic
+feed with 200, never 401. Clients render sections purely by `kind` and ignore
+kinds they don't recognize, so new section types ship without an app release.
+
+**Follows** are entity-polymorphic (`entity_type` + `entity_id`). Writes validate
+the target exists (404 otherwise); the bulk `PUT` rejects unknown ids as a group
+rather than silently dropping them. Follow/unfollow are idempotent.
 
 ## Sprint 2+ (specified)
 

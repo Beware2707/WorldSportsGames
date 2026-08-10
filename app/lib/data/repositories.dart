@@ -14,6 +14,7 @@ final tokenStoreProvider = Provider<TokenStore>((ref) => const SecureTokenStore(
 /// API implementation is the only one wired in production.
 abstract class CatalogRepository {
   Future<List<Sport>> listSports({String? category});
+  Future<List<Country>> listCountries();
   Future<Sport> getSport(String code);
   Future<Paged<Athlete>> listAthletes({String? sport, int page});
   Future<Paged<Competition>> listCompetitions({String? level, int page});
@@ -33,6 +34,13 @@ class ApiCatalogRepository implements CatalogRepository {
       'category': ?category,
     });
     return Paged.fromJson(json, Sport.fromJson).items;
+  }
+
+  @override
+  Future<List<Country>> listCountries() async {
+    final json =
+        await _client.getJson('/api/v1/countries', query: {'size': 100});
+    return Paged.fromJson(json, Country.fromJson).items;
   }
 
   @override

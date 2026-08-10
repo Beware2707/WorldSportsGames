@@ -6,6 +6,8 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/common.dart';
 import '../../data/repositories.dart';
 import '../../domain/models.dart';
+import '../../domain/personalization_models.dart';
+import '../follows/follow_button.dart';
 
 final competitionDetailProvider =
     FutureProvider.autoDispose.family<Competition, String>(
@@ -27,6 +29,15 @@ const _statusLabels = {
   'completed': 'COMPLETED',
 };
 
+String _levelLabel(String level) => switch (level) {
+      'olympic' => 'Olympic',
+      'world' => 'World',
+      'continental' => 'Continental',
+      'league' => 'League',
+      'national' => 'National',
+      _ => 'Other',
+    };
+
 class CompetitionDetailScreen extends ConsumerWidget {
   const CompetitionDetailScreen({super.key, required this.slug});
 
@@ -46,6 +57,37 @@ class CompetitionDetailScreen extends ConsumerWidget {
         data: (c) => ListView(
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.lg),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(c.name,
+                              style: Theme.of(context).textTheme.titleLarge),
+                          const SizedBox(height: AppSpacing.xs),
+                          Text(
+                            [
+                              _levelLabel(c.level),
+                              if (c.sport != null) c.sport!.name,
+                            ].join(' · '),
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                    FollowButton(
+                      kind: FollowKind.competition,
+                      entityId: c.id,
+                      name: c.name,
+                    ),
+                  ],
+                ),
+              ),
+            ),
             const SectionHeader('Editions'),
             if (c.editions.isEmpty)
               const EmptyState(

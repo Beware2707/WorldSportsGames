@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/common.dart';
+import '../../domain/personalization_models.dart';
+import '../follows/follow_button.dart';
 import 'sports_providers.dart';
 
 class SportDetailScreen extends ConsumerWidget {
@@ -49,6 +51,11 @@ class SportDetailScreen extends ConsumerWidget {
                           ),
                         ],
                       ),
+                    ),
+                    FollowButton(
+                      kind: FollowKind.sport,
+                      entityId: s.id,
+                      name: s.name,
                     ),
                   ],
                 ),

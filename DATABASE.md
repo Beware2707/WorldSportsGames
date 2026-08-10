@@ -23,8 +23,19 @@ app_user          id, email(uq), hashed_password, display_name, is_active,
                   created_at
 favorite          id, user_id→app_user, entity_type(sport|discipline|athlete|
                   country|competition), entity_id, created_at,
-                  (uq user_id+entity_type+entity_id)
+                  (uq user_id+entity_type+entity_id), idx entity_type
+user_preference   id, user_id→app_user, key, value(jsonb),
+                  (uq user_id+key)          — onboarding state, feed config
+notification_preference
+                  id, user_id→app_user, kind, enabled,
+                  (uq user_id+kind)         — absence means enabled
 ```
+
+`favorite.entity_id` is intentionally not a foreign key (it is polymorphic), so
+referential integrity lives in `repositories/personalization.py`: every write
+checks the target exists first. A follow pointing at a deleted row would silently
+poison the personalized feed, so reads also tolerate a missing target by
+returning `name: null` rather than failing the whole list.
 
 Indexes: every FK; `athlete(country_id)`, `competition_edition(status, start_date)`,
 `favorite(user_id)`.

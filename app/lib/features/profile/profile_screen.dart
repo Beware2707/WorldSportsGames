@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/common.dart';
 import '../../data/repositories.dart';
 import '../../domain/models.dart';
+import '../../domain/personalization_models.dart';
+import '../follows/follows_controller.dart';
 
 /// App-wide theme mode, toggled from the profile screen.
 class ThemeModeNotifier extends Notifier<ThemeMode> {
@@ -40,6 +44,93 @@ class ProfileScreen extends ConsumerStatefulWidget {
 
   @override
   ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+/// Everything the signed-in user follows, grouped by kind, with unfollow.
+class _FollowingCard extends ConsumerWidget {
+  const _FollowingCard();
+
+  static const _groupTitles = {
+    FollowKind.sport: 'Sports',
+    FollowKind.athlete: 'Athletes',
+    FollowKind.country: 'Countries',
+    FollowKind.competition: 'Competitions',
+    FollowKind.discipline: 'Disciplines',
+  };
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final follows = ref.watch(followsProvider);
+    return Card(
+      child: follows.when(
+        loading: () => const Padding(
+          padding: EdgeInsets.all(AppSpacing.lg),
+          child: Center(child: CircularProgressIndicator()),
+        ),
+        error: (e, _) => Padding(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: ErrorState(
+            message: e.toString(),
+            onRetry: () => ref.invalidate(followsProvider),
+          ),
+        ),
+        data: (items) {
+          if (items.isEmpty) {
+            return ListTile(
+              leading: const Icon(Icons.favorite_outline_rounded),
+              title: const Text('Not following anything yet'),
+              subtitle: const Text('Follow sports and athletes to shape '
+                  'your home feed'),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => context.push('/onboarding'),
+            );
+          }
+          final grouped = <FollowKind, List<Follow>>{};
+          for (final follow in items) {
+            grouped.putIfAbsent(follow.kind, () => []).add(follow);
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.favorite_rounded),
+                title: Text('Following ${items.length}'),
+              ),
+              for (final entry in grouped.entries) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.md, AppSpacing.xs, AppSpacing.md, AppSpacing.xs),
+                  child: Text(
+                    _groupTitles[entry.key] ?? entry.key.name,
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md, vertical: AppSpacing.xs),
+                  child: Wrap(
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.sm,
+                    children: [
+                      for (final follow in entry.value)
+                        InputChip(
+                          label: Text(follow.name ?? '#${follow.entityId}'),
+                          onDeleted: () => ref
+                              .read(followsProvider.notifier)
+                              .toggle(follow.kind, follow.entityId),
+                          deleteIcon: const Icon(Icons.close_rounded, size: 18),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: AppSpacing.sm),
+            ],
+          );
+        },
+      ),
+    );
+  }
 }
 
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
@@ -96,6 +187,31 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               child: user == null ? _authForm() : _accountView(user),
             ),
           ),
+          if (user != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            const _FollowingCard(),
+            const SizedBox(height: AppSpacing.md),
+            Card(
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.tune_rounded),
+                    title: const Text('Personalize my feed'),
+                    subtitle: const Text('Pick sports, athletes and more'),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () => context.push('/onboarding'),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.notifications_outlined),
+                    title: const Text('Notifications'),
+                    subtitle: const Text('Choose what you hear about'),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () => context.push('/settings/notifications'),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: AppSpacing.md),
           Card(
             child: Column(

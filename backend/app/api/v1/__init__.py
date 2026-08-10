@@ -10,6 +10,7 @@ from app.api.v1 import (
     live,
     search,
     sports,
+    users,
 )
 
 router = APIRouter(prefix="/api/v1")
@@ -22,3 +23,4 @@ router.include_router(competitions.router)
 router.include_router(events.router)
 router.include_router(live.router)
 router.include_router(search.router)
+router.include_router(users.router)

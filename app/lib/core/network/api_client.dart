@@ -79,6 +79,34 @@ class ApiClient {
     }
   }
 
+  Future<List<dynamic>> postJsonList(String path, {Object? body}) async {
+    try {
+      final response =
+          await _dio.post<List<dynamic>>(path, data: body, options: _options());
+      return response.data ?? const <dynamic>[];
+    } on DioException catch (e) {
+      throw _map(e);
+    }
+  }
+
+  Future<List<dynamic>> putJsonList(String path, {Object? body}) async {
+    try {
+      final response =
+          await _dio.put<List<dynamic>>(path, data: body, options: _options());
+      return response.data ?? const <dynamic>[];
+    } on DioException catch (e) {
+      throw _map(e);
+    }
+  }
+
+  Future<void> delete(String path) async {
+    try {
+      await _dio.delete<void>(path, options: _options());
+    } on DioException catch (e) {
+      throw _map(e);
+    }
+  }
+
   Options _options() => Options(headers: {
         if (_accessToken != null) 'Authorization': 'Bearer $_accessToken',
       });
