@@ -99,6 +99,15 @@ class ApiClient {
     }
   }
 
+  /// POST with no meaningful response body (204 endpoints).
+  Future<void> postEmpty(String path) async {
+    try {
+      await _dio.post<void>(path, options: _options());
+    } on DioException catch (e) {
+      throw _map(e);
+    }
+  }
+
   Future<void> delete(String path) async {
     try {
       await _dio.delete<void>(path, options: _options());

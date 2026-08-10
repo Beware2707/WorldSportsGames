@@ -4,6 +4,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
+from app.ai.deterministic import DeterministicProvider
+from app.ai.llm import LLMProvider
 from app.api.v1 import router as v1_router
 from app.core.cache import Cache
 from app.core.config import get_settings
@@ -17,6 +19,22 @@ async def lifespan(app: FastAPI):
     yield
     await app.state.live_hub.stop()
     await app.state.cache.close()
+
+
+def _build_ai_provider(settings):
+    """Pick the configured AI provider.
+
+    Falls back to the deterministic provider when an LLM is selected but not
+    fully configured — starting with a half-configured model would fail every
+    insight request at runtime instead of at boot.
+    """
+    if settings.ai_provider == "llm" and settings.ai_api_key:
+        return LLMProvider(
+            endpoint=settings.ai_endpoint,
+            api_key=settings.ai_api_key,
+            model=settings.ai_model,
+        )
+    return DeterministicProvider()
 
 
 def create_app() -> FastAPI:
@@ -41,6 +59,7 @@ def create_app() -> FastAPI:
     app.state.cache = Cache(settings.redis_url)
     app.state.live_hub = LiveHub(settings.redis_url)
     app.state.session_factory = get_session_factory()
+    app.state.ai_provider = _build_ai_provider(settings)
     app.state.background_tasks = set()
 
     @app.get("/health", tags=["ops"])

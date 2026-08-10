@@ -14,6 +14,7 @@ import '../../features/games/games_screen.dart';
 import '../../features/games/leaderboard_screen.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/live/live_screen.dart';
+import '../../features/notifications/notifications_screen.dart';
 import '../../features/onboarding/onboarding_screen.dart';
 import '../../features/rankings/rankings_screen.dart';
 import '../../features/records/records_screen.dart';
@@ -30,6 +31,10 @@ final appRouter = GoRouter(
     // Full-screen routes outside the bottom-nav shell.
     GoRoute(path: '/onboarding', builder: (_, _) => const OnboardingScreen()),
     GoRoute(path: '/search', builder: (_, _) => const SearchScreen()),
+    GoRoute(
+      path: '/notifications',
+      builder: (_, _) => const NotificationsScreen(),
+    ),
     GoRoute(
       path: '/athletes/:slug',
       builder: (_, state) =>

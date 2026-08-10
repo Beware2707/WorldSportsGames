@@ -32,6 +32,13 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5000",
     ]
 
+    # AI provider. "deterministic" computes insights from recorded results
+    # and needs no key; "llm" is opt-in and requires the settings below.
+    ai_provider: str = "deterministic"
+    ai_endpoint: str = "https://api.anthropic.com/v1/messages"
+    ai_api_key: str = ""
+    ai_model: str = "claude-sonnet-5"
+
     # Gate for development fixture data (fictional athletes etc.). The static
     # sport/discipline taxonomy is real reference data and is always seedable.
     enable_dev_fixtures: bool = False

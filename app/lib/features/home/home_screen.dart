@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/common.dart';
 import '../../domain/models.dart';
+import '../notifications/notifications_screen.dart';
 import '../search/search_screen.dart';
 import 'home_providers.dart';
 
@@ -17,7 +18,7 @@ class HomeScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('World Sports'),
-        actions: const [SearchIconButton()],
+        actions: const [_NotificationBell(), SearchIconButton()],
       ),
       body: RefreshIndicator(
         onRefresh: () => ref.refresh(homeFeedProvider.future),
@@ -36,6 +37,26 @@ class HomeScreen extends ConsumerWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Bell with an unread badge. Shows no badge when signed out rather than a
+/// zero, which would imply an empty inbox rather than no inbox.
+class _NotificationBell extends ConsumerWidget {
+  const _NotificationBell();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unread = ref.watch(unreadCountProvider).value ?? 0;
+    return IconButton(
+      tooltip: unread > 0 ? '$unread unread notifications' : 'Notifications',
+      onPressed: () => GoRouter.of(context).push('/notifications'),
+      icon: Badge(
+        isLabelVisible: unread > 0,
+        label: Text('$unread'),
+        child: const Icon(Icons.notifications_none_rounded),
       ),
     );
   }

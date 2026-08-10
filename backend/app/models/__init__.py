@@ -11,6 +11,13 @@ from app.models.games import (
     UserProgress,
 )
 from app.models.live import LiveEvent, LiveUpdate
+from app.models.media import (
+    MediaItem,
+    Notification,
+    media_athlete,
+    media_country,
+    media_sport,
+)
 from app.models.user import (
     AppUser,
     Favorite,
@@ -33,6 +40,8 @@ __all__ = [
     "LiveEvent",
     "LiveUpdate",
     "Medal",
+    "MediaItem",
+    "Notification",
     "NotificationPreference",
     "Participation",
     "Ranking",
@@ -46,4 +55,7 @@ __all__ = [
     "UserProgress",
     "Venue",
     "athlete_discipline",
+    "media_athlete",
+    "media_country",
+    "media_sport",
 ]

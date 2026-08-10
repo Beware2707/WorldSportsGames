@@ -87,9 +87,23 @@ interactive sports mini-games, and AI insights — designed sport-agnostic from 
 - Modular mini-game engine (reaction/timing/accuracy primitives), XP/levels/
   achievements, leaderboards (global/country/friends).
 
-### Sprint 6 — AI & Media
-- AI service abstraction (provider-agnostic), athlete summaries, event previews,
-  H2H analysis; news/video adapters; push notifications.
+### Sprint 6 — AI & Media ✅ DONE
+- Provider-agnostic AI abstraction. `AIInsight` **cannot be constructed
+  without a disclaimer**, and predictive kinds are forced to
+  `is_estimate=True` in `__post_init__` — a caller cannot emit an unlabelled
+  prediction even by passing `is_estimate=False`. The schema rejects a blank
+  disclaimer, and the Flutter `InsightCard` is the only widget that renders
+  generated text.
+- Default provider is **deterministic**, not an LLM: it computes insights
+  arithmetically from recorded results, so it cannot hallucinate a medal that
+  was never won and needs no API key. An LLM provider is opt-in, is given the
+  same pre-computed context, and any failure falls back to deterministic —
+  an outage degrades quality, never correctness.
+- Media links out to publishers (`source` + canonical `url`); nothing is
+  scraped or rehosted.
+- Notification delivery honours Sprint 3 preferences **before writing a row**,
+  so an opted-out kind leaves no trace, and `dedupe_key` makes generation
+  idempotent across retries.
 
 ### Sprint 7 — Hardening
 - Observability, rate limiting, CDN/image pipeline, i18n, accessibility audit,

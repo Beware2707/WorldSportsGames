@@ -4,10 +4,25 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/common.dart';
+import '../../core/widgets/insight_card.dart';
+import '../../data/insights_repository.dart';
+import '../../domain/insight_models.dart';
 import '../../data/competitive_repository.dart';
 import '../../domain/competitive_models.dart';
 import '../../domain/personalization_models.dart';
 import '../follows/follow_button.dart';
+
+final athleteSummaryProvider =
+    FutureProvider.autoDispose.family<AIInsight, String>(
+  (ref, slug) => ref.watch(insightsRepositoryProvider).athleteSummary(slug),
+  retry: (count, error) => null,
+);
+
+final athleteTrendProvider =
+    FutureProvider.autoDispose.family<AIInsight, String>(
+  (ref, slug) => ref.watch(insightsRepositoryProvider).athleteTrend(slug),
+  retry: (count, error) => null,
+);
 
 final athleteProfileProvider =
     FutureProvider.autoDispose.family<AthleteProfile, String>(
@@ -41,6 +56,10 @@ class AthleteProfileScreen extends ConsumerWidget {
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
             _Header(profile: data),
+            const SectionHeader('Insights'),
+            _InsightSlot(provider: athleteSummaryProvider(slug)),
+            const SizedBox(height: AppSpacing.sm),
+            _InsightSlot(provider: athleteTrendProvider(slug)),
             if (data.medals.isNotEmpty) ...[
               const SectionHeader('Medals'),
               _MedalSummary(medals: data.medals),
@@ -142,6 +161,22 @@ class AthleteProfileScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+}
+
+/// Renders an insight, or nothing at all if it fails — an unavailable
+/// insight must never block the factual profile below it.
+class _InsightSlot extends ConsumerWidget {
+  const _InsightSlot({required this.provider});
+
+  final FutureProvider<AIInsight> provider;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ref.watch(provider).maybeWhen(
+          data: (insight) => InsightCard(insight: insight),
+          orElse: () => const SizedBox.shrink(),
+        );
   }
 }
 
