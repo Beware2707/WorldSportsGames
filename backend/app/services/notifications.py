@@ -18,8 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Favorite, Notification
-from app.repositories.personalization import notification_preferences
+from app.models import Favorite, Notification, NotificationPreference
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +36,26 @@ _transports: list[NotificationTransport] = []
 
 def register_transport(transport: NotificationTransport) -> None:
     _transports.append(transport)
+
+
+async def disabled_recipients(
+    session: AsyncSession, user_ids: list[int], kind: str
+) -> set[int]:
+    """Which of ``user_ids`` have opted out of ``kind`` — in one query.
+
+    Preferences are opt-out: absence of a row means enabled, so only explicit
+    ``enabled=False`` rows matter here.
+    """
+    if not user_ids:
+        return set()
+    rows = await session.execute(
+        select(NotificationPreference.user_id).where(
+            NotificationPreference.user_id.in_(user_ids),
+            NotificationPreference.kind == kind,
+            NotificationPreference.enabled.is_(False),
+        )
+    )
+    return {row[0] for row in rows.all()}
 
 
 async def followers_of(
@@ -65,12 +84,19 @@ async def notify(
     Returns only the rows actually created — recipients who opted out, or who
     already received this exact notification, are silently skipped.
     """
-    created: list[Notification] = []
-    for user_id in dict.fromkeys(user_ids):  # de-duplicate, preserve order
-        preferences = await notification_preferences(session, user_id)
-        if not preferences.get(kind, True):
-            continue
+    recipients = list(dict.fromkeys(user_ids))  # de-duplicate, preserve order
+    if not recipients:
+        return []
 
+    # One query for every recipient's preferences, not one per recipient:
+    # a medal for a popular athlete fans out to thousands of followers.
+    opted_out = await disabled_recipients(session, recipients, kind)
+    wanted = [uid for uid in recipients if uid not in opted_out]
+    if not wanted:
+        return []
+
+    created: list[Notification] = []
+    for user_id in wanted:
         notification = Notification(
             user_id=user_id,
             kind=kind,
@@ -79,13 +105,18 @@ async def notify(
             payload=payload,
             dedupe_key=dedupe_key,
         )
-        session.add(notification)
         try:
-            await session.flush()
+            # SAVEPOINT, not a bare flush: a duplicate for ONE recipient must
+            # undo only that insert. A full session.rollback() here would
+            # discard every notification already created in this transaction
+            # — and any caller work in it, such as the medal row that
+            # triggered the fan-out.
+            async with session.begin_nested():
+                session.add(notification)
+                await session.flush()
         except IntegrityError:
             # Already delivered to this user — the unique constraint is the
             # source of truth, so a concurrent generator cannot double-send.
-            await session.rollback()
             continue
         created.append(notification)
 

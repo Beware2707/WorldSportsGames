@@ -243,6 +243,18 @@ async def athlete_rankings(session: AsyncSession, athlete_id: int) -> list[Ranki
     return list(rows.scalars().all())
 
 
+async def count_country_athletes(session: AsyncSession, country_id: int) -> int:
+    """Real athlete count. The profile previously reported the page limit,
+    so a country with 200 athletes claimed exactly 30."""
+    return (
+        await session.execute(
+            select(func.count())
+            .select_from(Athlete)
+            .where(Athlete.country_id == country_id)
+        )
+    ).scalar_one()
+
+
 async def country_athletes(
     session: AsyncSession, country_id: int, limit: int = 30
 ) -> list[Athlete]:

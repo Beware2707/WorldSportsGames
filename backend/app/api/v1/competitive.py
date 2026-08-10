@@ -7,6 +7,7 @@ from sqlalchemy import select
 from app.api.deps import DbSession
 from app.models import Discipline
 from app.repositories.competitive import (
+    count_country_athletes,
     country_athletes,
     country_medal_tally,
     country_records,
@@ -168,12 +169,13 @@ async def country_profile(iso3: str, session: DbSession) -> CountryProfileOut:
 
     gold, silver, bronze = await country_medal_tally(session, country.id)
     athletes = await country_athletes(session, country.id)
+    total_athletes = await count_country_athletes(session, country.id)
     records = await country_records(session, country.id)
     holders = await record_holders(session, records)
 
     return CountryProfileOut(
         country=CountryOut.model_validate(country),
-        athlete_count=len(athletes),
+        athlete_count=total_athletes,
         medals=MedalTallyOut(
             country=CountryOut.model_validate(country),
             gold=gold,

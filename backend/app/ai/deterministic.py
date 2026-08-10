@@ -150,9 +150,17 @@ class DeterministicProvider:
 
         half = max(1, len(values) // 2)
         earlier, later = mean(values[:half]), mean(values[half:])
-        improving = later < earlier if lower_is_better else later > earlier
         change = abs(later - earlier)
-        direction = "improving" if improving else "declining"
+
+        # A flat series is steady, not declining. Treating "not improving" as
+        # "declining" reported a perfectly consistent athlete as getting worse.
+        epsilon = max(abs(earlier), 1e-9) * 1e-6
+        if change <= epsilon:
+            direction = "steady"
+        elif (later < earlier) if lower_is_better else (later > earlier):
+            direction = "improving"
+        else:
+            direction = "declining"
 
         return AIInsight(
             kind=InsightKind.PERFORMANCE_TREND,
@@ -187,16 +195,22 @@ class DeterministicProvider:
 
         a_wins = sum(1 for m in meetings if m.get("winner") == "a")
         b_wins = sum(1 for m in meetings if m.get("winner") == "b")
+        undecided = len(meetings) - a_wins - b_wins
         leader = a_name if a_wins > b_wins else b_name if b_wins > a_wins else None
         verdict = (
             f"{leader} leads {max(a_wins, b_wins)}–{min(a_wins, b_wins)}"
             if leader
             else f"They are level at {a_wins}–{b_wins}"
         )
+        # State the undecided count so the tally reconciles with the meeting
+        # count; silently dropping them made the numbers appear not to add up.
+        remainder = (
+            f" {undecided} meeting(s) had no decisive placing." if undecided else ""
+        )
         return AIInsight(
             kind=InsightKind.HEAD_TO_HEAD,
             text=(
-                f"In {len(meetings)} recorded meeting(s), {verdict}. "
+                f"In {len(meetings)} recorded meeting(s), {verdict}.{remainder} "
                 "Past meetings do not determine future ones."
             ),
             provider=self.name,

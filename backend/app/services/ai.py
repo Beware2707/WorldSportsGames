@@ -14,7 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from app.ai.base import AIInsight, AIProvider, InsightKind
 from app.ai.deterministic import DeterministicProvider
-from app.models import Athlete, Event, Participation, Result
+from app.models import Athlete, Event, Participation, Ranking, Result
 from app.repositories.competitive import (
     athlete_medals,
     athlete_rankings,
@@ -25,6 +25,15 @@ from app.repositories.competitive import (
 logger = logging.getLogger(__name__)
 
 _FALLBACK = DeterministicProvider()
+
+# Value kinds where a smaller number is a better performance. Everything else
+# (points, distance, height, goals…) improves upward. Assuming only "time"
+# counts down would invert golf strokes and equestrian penalties.
+_LOWER_IS_BETTER_KINDS = frozenset({"time", "penalties", "strokes"})
+
+
+def improves_downward(value_kind: str | None) -> bool:
+    return value_kind in _LOWER_IS_BETTER_KINDS
 
 
 async def generate(
@@ -56,7 +65,12 @@ async def athlete_context(session: AsyncSession, athlete: Athlete) -> dict:
         "disciplines": [d.name for d in athlete.disciplines],
         "medals": [m.metal for m in medals],
         "records": [f"{r.kind} in {r.event_name}" for r in records],
-        "results": [result.position for result, _ in results],
+        # Only finishes count: a DSQ or DNF is not a podium.
+        "results": [
+            result.position
+            for result, _ in results
+            if result.status == "ok" and result.position is not None
+        ],
         "rankings": [
             {"discipline": r.discipline.name if r.discipline else None, "rank": r.rank}
             for r in rankings
@@ -72,26 +86,32 @@ async def trend_context(session: AsyncSession, athlete: Athlete) -> dict:
     grouped by discipline and the largest comparable group wins.
     """
     rows = await athlete_recent_results(session, athlete.id, limit=25)
-    by_discipline: dict[str, list[float]] = {}
-    kinds: dict[str, str] = {}
+    # Group by (discipline, value_kind, event): a 100m time and a long-jump
+    # distance in the same discipline are not comparable, and neither are a
+    # 100m time and a 200m time. Grouping by discipline alone averaged them
+    # together — the exact mistake this function claims to prevent.
+    grouped: dict[tuple[str, str, str], list[float]] = {}
     for result, event in rows:
         if result.value_num is None or result.status != "ok":
             continue
-        key = event.discipline.name if event.discipline else "unknown"
-        by_discipline.setdefault(key, []).append(result.value_num)
-        kinds[key] = result.value_kind
+        key = (
+            event.discipline.name if event.discipline else "unknown",
+            result.value_kind,
+            event.name,
+        )
+        grouped.setdefault(key, []).append(result.value_num)
 
-    if not by_discipline:
+    if not grouped:
         return {"values": [], "lower_is_better": True, "discipline": None}
 
-    discipline = max(by_discipline, key=lambda k: len(by_discipline[k]))
-    values = list(reversed(by_discipline[discipline]))  # oldest first
+    discipline, value_kind, event_name = max(grouped, key=lambda k: len(grouped[k]))
+    values = list(reversed(grouped[(discipline, value_kind, event_name)]))
     return {
         "values": values,
-        # Times and other duration-like measures improve downward; points,
-        # distances and heights improve upward.
-        "lower_is_better": kinds.get(discipline) == "time",
+        "lower_is_better": improves_downward(value_kind),
         "discipline": discipline,
+        "event": event_name,
+        "value_kind": value_kind,
         "name": athlete.full_name,
     }
 
@@ -125,7 +145,12 @@ async def head_to_head_context(
             continue
         winner = None
         if a_result.position and b_result.position:
-            winner = "a" if a_result.position < b_result.position else "b"
+            if a_result.position < b_result.position:
+                winner = "a"
+            elif b_result.position < a_result.position:
+                winner = "b"
+            # Equal positions are a genuine tie — crediting B (as a bare
+            # `else` did) would invent a result neither athlete achieved.
         meetings.append({"event": event_names[event_id], "winner": winner})
 
     return {
@@ -136,21 +161,38 @@ async def head_to_head_context(
 
 
 async def event_context(session: AsyncSession, event: Event) -> dict:
-    """Entrants with their current ranking, if any."""
-    entrants = []
-    for participation in event.participations:
-        athlete = participation.athlete
-        rankings = await athlete_rankings(session, athlete.id)
-        rank = None
-        for row in rankings:
-            if event.discipline_id and row.discipline_id == event.discipline_id:
-                rank = row.rank
-                break
-        entrants.append({"name": athlete.full_name, "rank": rank})
+    """Entrants with their current ranking, if any.
 
+    Ranks are fetched for all entrants in ONE query. Querying per entrant
+    made a public, unauthenticated endpoint issue N round-trips for a field
+    that is entirely optional.
+    """
+    athlete_ids = [p.athlete_id for p in event.participations]
+    ranks: dict[int, int] = {}
+    if athlete_ids and event.discipline_id:
+        rows = await session.execute(
+            select(Ranking.entity_id, Ranking.rank, Ranking.methodology)
+            .where(
+                Ranking.scope == "athlete",
+                Ranking.entity_id.in_(athlete_ids),
+                Ranking.discipline_id == event.discipline_id,
+                # One methodology only: mixing ladders would rank an Elo 3rd
+                # against a world-ranking 2nd as if they were comparable.
+                Ranking.methodology == "world_ranking",
+            )
+            .order_by(Ranking.as_of.desc())
+        )
+        for entity_id, rank, _ in rows.all():
+            ranks.setdefault(entity_id, rank)
+
+    entrants = [
+        {"name": p.athlete.full_name, "rank": ranks.get(p.athlete_id)}
+        for p in event.participations
+    ]
     return {
         "event_name": event.name,
         "discipline": event.discipline.name if event.discipline else None,
         "status": event.status,
         "entrants": entrants,
+        "ranking_methodology": "world_ranking",
     }

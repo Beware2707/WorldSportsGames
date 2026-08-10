@@ -129,7 +129,9 @@ async def test_every_ai_endpoint_labels_its_output(client):
         "/api/v1/ai/athletes/zellie-dunbar/summary",
         "/api/v1/ai/athletes/zellie-dunbar/trend",
         "/api/v1/ai/head-to-head?a=zellie-dunbar&b=amara-okafor",
-        "/api/v1/ai/explain/result?status=DNF",
+        # Closed vocabulary: the free-text form was removed because a caller
+        # could author the text and have the disclaimer vouch for it.
+        "/api/v1/ai/explain/status?code=DNF",
     ]
     for endpoint in endpoints:
         r = await client.get(endpoint)

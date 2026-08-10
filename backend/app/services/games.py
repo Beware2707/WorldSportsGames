@@ -8,6 +8,7 @@ single direction — leaderboards and personal bests both consult the game.
 from datetime import date, timedelta
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
@@ -79,12 +80,29 @@ async def personal_best(
 async def get_or_create_progress(
     session: AsyncSession, user_id: int
 ) -> UserProgress:
+    """Fetch the user's progress row, creating it on first play.
+
+    Read-then-insert races when the same user submits two plays at once (two
+    devices, or a double-tap): both see None, both INSERT, and the loser hit
+    the primary key and 500'd — losing that play. The insert runs in a
+    SAVEPOINT so a collision can be absorbed and the winner's row re-read.
+    """
     progress = await session.get(UserProgress, user_id)
-    if progress is None:
-        progress = UserProgress(user_id=user_id)
-        session.add(progress)
-        await session.flush()
-    return progress
+    if progress is not None:
+        return progress
+
+    try:
+        async with session.begin_nested():
+            progress = UserProgress(user_id=user_id)
+            session.add(progress)
+            await session.flush()
+        return progress
+    except IntegrityError:
+        # A concurrent submission created it first — use theirs.
+        progress = await session.get(UserProgress, user_id)
+        if progress is None:  # pragma: no cover - defensive
+            raise
+        return progress
 
 
 def next_streak(previous_day: date | None, today: date, current: int) -> int:

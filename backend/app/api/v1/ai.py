@@ -93,23 +93,54 @@ async def event_preview(
     return _out(insight)
 
 
-@router.get("/explain/result", response_model=AIInsightOut)
-async def explain_result(
-    request: Request,
-    result_status: Annotated[str | None, Query(alias="status")] = None,
-    position: Annotated[int | None, Query()] = None,
-    value_text: Annotated[str | None, Query()] = None,
-    value_kind: Annotated[str | None, Query()] = None,
+@router.get("/events/{event_id}/results/{slug}/explain", response_model=AIInsightOut)
+async def explain_recorded_result(
+    event_id: int, slug: str, request: Request, session: DbSession
 ) -> AIInsightOut:
-    """Plain-language explanation of a result line (DNS/DNF/DSQ and finishes)."""
+    """Explain a result that is actually on record.
+
+    Deliberately keyed on stored identifiers rather than accepting the result
+    values as query parameters. The previous form echoed whatever the caller
+    supplied while attaching a disclaimer claiming the text was derived from
+    recorded results — the caller could author a "finding" and have the
+    platform vouch for it.
+    """
+    event = await get_event_detail(session, event_id)
+    if event is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+
+    participation = next(
+        (p for p in event.participations if p.athlete and p.athlete.slug == slug), None
+    )
+    if participation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="That athlete has no result in this event",
+        )
+
+    result = participation.result
     insight = await generate(
         request.app.state.ai_provider,
         InsightKind.RESULT_EXPLANATION,
         {
-            "status": result_status,
-            "position": position,
-            "value_text": value_text,
-            "value_kind": value_kind or "result",
+            "status": result.status if result else None,
+            "position": result.position if result else None,
+            "value_text": result.value_text if result else None,
+            "value_kind": (result.value_kind if result else None) or "result",
         },
+    )
+    return _out(insight)
+
+
+@router.get("/explain/status", response_model=AIInsightOut)
+async def explain_status(
+    request: Request,
+    code: Annotated[str, Query(pattern="^(DNS|DNF|DSQ|ok)$")],
+) -> AIInsightOut:
+    """Explain a result-status abbreviation. Closed vocabulary, no free text."""
+    insight = await generate(
+        request.app.state.ai_provider,
+        InsightKind.RESULT_EXPLANATION,
+        {"status": code},
     )
     return _out(insight)

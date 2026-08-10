@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import CurrentUser, DbSession, OptionalUser
 from app.repositories.games import (
@@ -91,16 +92,32 @@ async def submit_score(
             detail=f"Score must be between {low} and {high} for this game",
         )
 
-    row, unlocked, improved = await record_session(
-        session,
-        user_id=user.id,
-        game=game,
-        score=body.score,
-        detail=body.detail,
-        today=datetime.now(UTC).date(),
-    )
-    progress = await user_progress(session, user.id)
-    await session.commit()
+    # Two concurrent first plays from one user each INSERT the progress row.
+    # The conflict surfaces at COMMIT (each request has its own transaction,
+    # so neither sees the other's uncommitted row), which a savepoint inside
+    # the unit of work cannot absorb. Retry once: by then the row exists and
+    # get_or_create_progress finds it, so the play is recorded instead of
+    # 500-ing and being lost.
+    for attempt in range(2):
+        try:
+            row, unlocked, improved = await record_session(
+                session,
+                user_id=user.id,
+                game=game,
+                score=body.score,
+                detail=body.detail,
+                today=datetime.now(UTC).date(),
+            )
+            progress = await user_progress(session, user.id)
+            await session.commit()
+            break
+        except IntegrityError:
+            await session.rollback()
+            if attempt == 1:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Could not record that play, please try again",
+                ) from None
 
     level, into, needed = xp_progress(progress.total_xp)
     return SubmitScoreOut(

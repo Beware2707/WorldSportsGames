@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     # Fixed-window limit for credential endpoints (per client IP).
     auth_rate_limit: int = 10
     auth_rate_window_seconds: int = 60
+    # Peers whose X-Forwarded-For header may be believed. Empty by default:
+    # an untrusted client can set that header to anything, so honouring it
+    # without an allow-list makes the rate limit trivially bypassable.
+    trusted_proxies: list[str] = []
 
     # AI provider. "deterministic" computes insights from recorded results
     # and needs no key; "llm" is opt-in and requires the settings below.

@@ -74,6 +74,31 @@ frame already reflected in its snapshot can discard it by sequence number.
 `POST /api/v1/live/dev/simulate` requires dev mode **and** a bearer token; it
 returns 404 (not 401) outside dev mode so the route is invisible in production.
 
+### AI endpoints
+
+```
+GET /api/v1/ai/athletes/{slug}/summary        derived from recorded results
+GET /api/v1/ai/athletes/{slug}/trend          estimate, always labelled
+GET /api/v1/ai/head-to-head?a=&b=             estimate, always labelled
+GET /api/v1/ai/events/{id}/preview            estimate, always labelled
+GET /api/v1/ai/events/{id}/results/{slug}/explain   explains a STORED result
+GET /api/v1/ai/explain/status?code=DNS|DNF|DSQ|ok   closed vocabulary
+```
+
+Every response carries a non-empty `disclaimer`, and predictive kinds are
+forced to `is_estimate: true` server-side. Explanations are keyed on stored
+identifiers rather than accepting result values as query parameters — the
+earlier form let a caller author text and have the disclaimer vouch that it
+came from recorded results.
+
+### Rate limiting
+
+`/auth/login` and `/auth/register` are limited per client. The client is
+identified by the socket peer; `X-Forwarded-For` is consulted **only** when
+the peer is listed in `SPORTS_TRUSTED_PROXIES`, and then the rightmost hop is
+used. Honouring the header unconditionally made the limit bypassable by
+rotating it — worse than no limit, because it looked protected.
+
 ### Home feed contract
 
 `GET /api/v1/home` returns an ordered list of sections the client renders

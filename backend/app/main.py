@@ -56,6 +56,7 @@ def create_app() -> FastAPI:
         limit=settings.auth_rate_limit,
         window_seconds=settings.auth_rate_window_seconds,
         paths=("/api/v1/auth/login", "/api/v1/auth/register"),
+        trusted_proxies=frozenset(settings.trusted_proxies),
     )
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(
