@@ -18,12 +18,12 @@ void main() {
     expect(page.items.single.disciplines, isEmpty);
   });
 
-  test('Edition parses nested competition and live status', () {
+  test('Edition parses nested competition and in-progress status', () {
     final edition = Edition.fromJson({
       'id': 8,
       'label': '2026 Season',
       'year': 2026,
-      'status': 'live',
+      'status': 'in_progress',
       'start_date': '2026-04-25',
       'host_city': null,
       'host_country': null,
@@ -36,7 +36,8 @@ void main() {
           'category': 'summer', 'icon': 'sprint'},
       },
     });
-    expect(edition.isLive, isTrue);
+    // An in-progress season is NOT live coverage — no LIVE affordance.
+    expect(edition.isInProgress, isTrue);
     expect(edition.competition?.sport?.code, 'athletics');
     expect(edition.startDate?.year, 2026);
   });

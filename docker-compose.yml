@@ -31,6 +31,8 @@ services:
       SPORTS_DATABASE_URL: postgresql+asyncpg://sports:sports@db:5432/sportsdb
       SPORTS_REDIS_URL: redis://redis:6379/0
       SPORTS_JWT_SECRET: ${SPORTS_JWT_SECRET:?set in .env}
+      SPORTS_DEBUG: ${SPORTS_DEBUG:-false}
+      SPORTS_ENABLE_DEV_FIXTURES: ${SPORTS_ENABLE_DEV_FIXTURES:-false}
     ports:
       - "8000:8000"
     depends_on:

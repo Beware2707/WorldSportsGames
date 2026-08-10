@@ -7,7 +7,10 @@ from app.db.base import Base
 from app.models.catalog import Country, Sport
 
 COMPETITION_LEVELS = ("olympic", "world", "continental", "league", "national", "other")
-EDITION_STATUSES = ("upcoming", "live", "completed")
+# An edition spans days or months. "in_progress" means the competition is
+# running; it is NOT a live-coverage signal. Only a LiveEvent row (see
+# models/live.py) may drive a LIVE indicator anywhere in the product.
+EDITION_STATUSES = ("upcoming", "in_progress", "completed")
 
 
 class Competition(Base):

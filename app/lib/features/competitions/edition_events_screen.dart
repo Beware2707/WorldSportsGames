@@ -6,12 +6,11 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/common.dart';
 import '../../data/live_repository.dart';
 import '../../domain/event_models.dart';
-import '../../domain/models.dart';
 
 final editionEventsProvider =
-    FutureProvider.autoDispose.family<Paged<SportEvent>, int>(
+    FutureProvider.autoDispose.family<List<SportEvent>, int>(
   (ref, editionId) =>
-      ref.watch(eventsRepositoryProvider).listEvents(editionId: editionId),
+      ref.watch(eventsRepositoryProvider).allEventsForEdition(editionId),
   retry: (count, error) => null,
 );
 
@@ -31,7 +30,7 @@ class EditionEventsScreen extends ConsumerWidget {
           message: e.toString(),
           onRetry: () => ref.invalidate(editionEventsProvider(editionId)),
         ),
-        data: (paged) => paged.items.isEmpty
+        data: (events) => events.isEmpty
             ? const EmptyState(
                 icon: Icons.event_note_rounded,
                 title: 'No events published yet',
@@ -40,9 +39,9 @@ class EditionEventsScreen extends ConsumerWidget {
               )
             : ListView.builder(
                 padding: const EdgeInsets.all(AppSpacing.md),
-                itemCount: paged.items.length,
+                itemCount: events.length,
                 itemBuilder: (context, i) {
-                  final event = paged.items[i];
+                  final event = events[i];
                   return Padding(
                     padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                     child: Card(
@@ -69,8 +68,9 @@ class EditionEventsScreen extends ConsumerWidget {
                                     .onSurface
                                     .withValues(alpha: 0.5),
                               ),
-                        onTap: () => context.go(
-                            '${GoRouterState.of(context).matchedLocation}/events/${event.id}'),
+                        onTap: () => context.push(
+                            '${GoRouterState.of(context).matchedLocation}'
+                            '/events/${event.id}'),
                       ),
                     ),
                   );

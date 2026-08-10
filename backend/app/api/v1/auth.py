@@ -5,7 +5,11 @@ from fastapi.security import OAuth2PasswordRequestForm
 
 from app.api.deps import CurrentUser, DbSession
 from app.core.security import create_access_token, hash_password, verify_password
-from app.repositories.user import create_user, get_user_by_email
+from app.repositories.user import (
+    EmailAlreadyRegistered,
+    create_user,
+    get_user_by_email,
+)
 from app.schemas.auth import RegisterRequest, TokenResponse, UserOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -17,12 +21,17 @@ async def register(body: RegisterRequest, session: DbSession) -> UserOut:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Email is already registered"
         )
-    user = await create_user(
-        session,
-        email=body.email,
-        hashed_password=hash_password(body.password),
-        display_name=body.display_name,
-    )
+    try:
+        user = await create_user(
+            session,
+            email=body.email,
+            hashed_password=hash_password(body.password),
+            display_name=body.display_name,
+        )
+    except EmailAlreadyRegistered:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Email is already registered"
+        ) from None
     return UserOut.model_validate(user)
 
 

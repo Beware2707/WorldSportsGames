@@ -175,13 +175,15 @@ class Edition {
   final int id;
   final String label;
   final int year;
-  final String status; // upcoming | live | completed
+  final String status; // upcoming | in_progress | completed
   final DateTime? startDate;
   final String? hostCity;
   final Country? hostCountry;
   final Competition? competition;
 
-  bool get isLive => status == 'live';
+  /// An edition spanning days or months is "in progress" — deliberately NOT a
+  /// live-coverage signal. Only a live event may drive a LIVE indicator.
+  bool get isInProgress => status == 'in_progress';
 
   factory Edition.fromJson(Map<String, dynamic> json) => Edition(
         id: json['id'] as int,

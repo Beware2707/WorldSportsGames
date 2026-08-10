@@ -13,10 +13,18 @@ final competitionDetailProvider =
   retry: (count, error) => null,
 );
 
+// Note: no entry maps to AppColors.live. An edition being in progress is not
+// live coverage and must never borrow the LIVE treatment.
 const _statusColors = {
-  'live': AppColors.live,
+  'in_progress': AppColors.energy,
   'upcoming': AppColors.primary,
   'completed': AppColors.secondary,
+};
+
+const _statusLabels = {
+  'in_progress': 'IN PROGRESS',
+  'upcoming': 'UPCOMING',
+  'completed': 'COMPLETED',
 };
 
 class CompetitionDetailScreen extends ConsumerWidget {
@@ -56,24 +64,21 @@ class CompetitionDetailScreen extends ConsumerWidget {
                         edition.hostCountry!.flagEmoji!,
                       '${edition.year}',
                     ].join(' · ')),
-                    trailing: edition.isLive
-                        ? const LiveBadge()
-                        : Chip(
-                            label: Text(edition.status.toUpperCase()),
-                            labelStyle: Theme.of(context)
-                                .textTheme
-                                .labelSmall
-                                ?.copyWith(
-                                  color: _statusColors[edition.status],
-                                  fontWeight: FontWeight.w800,
-                                ),
-                            backgroundColor: _statusColors[edition.status]
-                                    ?.withValues(alpha: 0.12) ??
-                                Colors.transparent,
-                            visualDensity: VisualDensity.compact,
-                          ),
+                    trailing: Chip(
+                      label: Text(_statusLabels[edition.status] ??
+                          edition.status.toUpperCase()),
+                      labelStyle:
+                          Theme.of(context).textTheme.labelSmall?.copyWith(
+                                color: _statusColors[edition.status],
+                                fontWeight: FontWeight.w800,
+                              ),
+                      backgroundColor: _statusColors[edition.status]
+                              ?.withValues(alpha: 0.12) ??
+                          Colors.transparent,
+                      visualDensity: VisualDensity.compact,
+                    ),
                     onTap: () => context
-                        .go('/competitions/${c.slug}/editions/${edition.id}'),
+                        .push('/competitions/${c.slug}/editions/${edition.id}'),
                   ),
                 ),
               ),

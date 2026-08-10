@@ -3,6 +3,7 @@ from typing import Annotated
 
 from fastapi import (
     APIRouter,
+    Depends,
     HTTPException,
     Query,
     Request,
@@ -11,10 +12,9 @@ from fastapi import (
     status,
 )
 
-from app.api.deps import DbSession
-from app.core.config import get_settings
+from app.api.deps import CurrentUser, DbSession, require_dev_mode
 from app.repositories.event import get_event_detail, get_scheduled_event_with_participants
-from app.repositories.live import get_live_events, last_seq
+from app.repositories.live import get_live_events, last_seq_map
 from app.schemas.event import EventOut
 from app.schemas.live import LiveEventOut
 from app.services.dev_sim import simulate_event
@@ -23,20 +23,20 @@ router = APIRouter(tags=["live"])
 
 
 async def _live_snapshot(session) -> list[LiveEventOut]:
-    snapshot = []
-    for live in await get_live_events(session):
-        snapshot.append(
-            LiveEventOut(
-                event=EventOut.model_validate(live.event),
-                edition_label=live.event.edition.label,
-                competition_name=live.event.edition.competition.name,
-                competition_slug=live.event.edition.competition.slug,
-                current_phase=live.current_phase,
-                last_seq=await last_seq(session, live.id),
-                updated_at=live.updated_at,
-            )
+    coverage = await get_live_events(session)
+    seqs = await last_seq_map(session, [c.id for c in coverage])  # one query, no N+1
+    return [
+        LiveEventOut(
+            event=EventOut.model_validate(live.event),
+            edition_label=live.event.edition.label,
+            competition_name=live.event.edition.competition.name,
+            competition_slug=live.event.edition.competition.slug,
+            current_phase=live.current_phase,
+            last_seq=seqs.get(live.id, 0),
+            updated_at=live.updated_at,
         )
-    return snapshot
+        for live in coverage
+    ]
 
 
 @router.get("/live", response_model=list[LiveEventOut])
@@ -46,15 +46,26 @@ async def live_events(session: DbSession) -> list[LiveEventOut]:
 
 
 @router.websocket("/live/ws")
-async def live_ws(ws: WebSocket, session: DbSession) -> None:
+async def live_ws(ws: WebSocket) -> None:
+    """Live stream: snapshot frame, then diffs.
+
+    The DB session is opened and closed around the snapshot only — a
+    request-scoped dependency would pin a pooled connection for the entire
+    (potentially hours-long) socket lifetime and exhaust the pool.
+    """
     await ws.accept()
     hub = ws.app.state.live_hub
-    snapshot = await _live_snapshot(session)
-    await ws.send_json(
-        {"type": "snapshot", "events": [e.model_dump(mode="json") for e in snapshot]}
-    )
+
+    # Register BEFORE snapshotting so updates published while the snapshot
+    # query runs are delivered rather than lost in the gap. Clients dedupe by
+    # seq, so an update that is also reflected in the snapshot is harmless.
     await hub.register(ws)
     try:
+        async with ws.app.state.session_factory() as session:
+            snapshot = await _live_snapshot(session)
+        await ws.send_json(
+            {"type": "snapshot", "events": [e.model_dump(mode="json") for e in snapshot]}
+        )
         while True:
             # Inbound frames are keepalives only; the stream is server → client.
             await ws.receive_text()
@@ -64,10 +75,15 @@ async def live_ws(ws: WebSocket, session: DbSession) -> None:
         await hub.unregister(ws)
 
 
-@router.post("/live/dev/simulate", status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/live/dev/simulate",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_dev_mode)],
+)
 async def dev_simulate(
     request: Request,
     session: DbSession,
+    user: CurrentUser,
     event_id: Annotated[int | None, Query()] = None,
     steps: Annotated[int, Query(ge=0, le=60)] = 5,
     interval: Annotated[float, Query(ge=0, le=10)] = 1.0,
@@ -75,12 +91,11 @@ async def dev_simulate(
 ) -> dict:
     """DEV ONLY: drive a seeded fictional event through a live lifecycle.
 
-    Hidden (404) unless SPORTS_ENABLE_DEV_FIXTURES=true. Every emitted payload
-    is tagged ``source: dev-sim``.
+    Double-gated by ``require_dev_mode`` (404 unless BOTH ``debug`` and
+    ``enable_dev_fixtures`` are on) and additionally requires an authenticated
+    user — a misconfigured deployment must not let anonymous callers fabricate
+    live coverage. Every emitted payload is tagged ``source: dev-sim``.
     """
-    if not get_settings().enable_dev_fixtures:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-
     if event_id is not None:
         event = await get_event_detail(session, event_id)
         if event is None:

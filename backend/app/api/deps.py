@@ -4,6 +4,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.security import decode_access_token
 from app.db.session import get_db
 from app.models import AppUser
@@ -31,3 +32,15 @@ async def get_current_user(
 
 
 CurrentUser = Annotated[AppUser, Depends(get_current_user)]
+
+
+def require_dev_mode() -> None:
+    """Hide dev-only routes outside development.
+
+    Declared as a route-level dependency so it resolves BEFORE authentication:
+    in production the endpoint 404s for everyone, rather than advertising its
+    existence with a 401.
+    """
+    settings = get_settings()
+    if not (settings.debug and settings.enable_dev_fixtures):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")

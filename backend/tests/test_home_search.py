@@ -4,10 +4,9 @@ async def test_home_feed_sections(client):
     sections = {s["kind"]: s for s in r.json()["sections"]}
     assert set(sections) == {"live_now", "up_next", "featured_competitions", "athlete_spotlight"}
 
-    # live_now only reflects editions genuinely marked live in the DB
-    # (the Diamond League 2026 season fixture) — never synthesized data.
-    live_labels = {i["label"] for i in sections["live_now"]["items"]}
-    assert live_labels == {"2026 Season"}
+    # live_now is sourced from LiveEvent rows only — an in-progress season
+    # must never surface as live. See test_live.py for the populated case.
+    assert sections["live_now"]["items"] == []
 
     up_next = sections["up_next"]["items"]
     assert any(i["label"] == "LA28" for i in up_next)

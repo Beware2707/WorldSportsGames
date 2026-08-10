@@ -63,8 +63,13 @@ COMPETITIONS: list[tuple] = [
         [("Budapest 2027", 2027, None, None, "Budapest", None, "upcoming")],
     ),
     (
+        # A months-long season is "in progress", NOT live coverage. Seeding it
+        # as "live" would render a pulsing LIVE badge in production for an
+        # event nobody is broadcasting — never do that in the ungated
+        # reference tier (or anywhere).
         "diamond-league", "Diamond League", "league", "athletics",
-        [("2026 Season", 2026, date(2026, 4, 25), date(2026, 9, 5), None, None, "live")],
+        [("2026 Season", 2026, date(2026, 4, 25), date(2026, 9, 5), None, None,
+          "in_progress")],
     ),
     (
         "fifa-world-cup", "FIFA World Cup", "world", "football",

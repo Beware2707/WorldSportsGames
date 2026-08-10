@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required in the main manifest: the Flutter template declares INTERNET
+         only in the debug/profile overlays, so release builds would fail every
+         API and WebSocket call. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="world_sports_games"
         android:name="${applicationName}"

@@ -83,11 +83,22 @@ Push routes: `/sports/:id` (disciplines), `/athletes/:id`, `/competitions/:id`,
 
 ## 6. Data honesty
 
-- Mock/dev data only flows through `DevMock*Repository` implementations selected by
-  `AppConfig.devMockData` (Flutter) / `settings.enable_seed` (backend). UI shows a
-  "DEV DATA" chip whenever a mock repository backs a screen.
-- Live indicators render only from a real `LiveEvent` with `status=live` from the
-  backend; there is no client-side simulation path.
+These are enforced invariants, not conventions — each has a test that fails if broken.
+
+- **A LIVE indicator requires a `LiveEvent` row.** Nothing else may produce one.
+  Both `GET /api/v1/live` and the home feed's `live_now` section read that same
+  table, so the two surfaces can never disagree. An edition spanning days or
+  months is `in_progress`, *not* `live` — `EDITION_STATUSES` deliberately has no
+  `live` member so the ambiguity cannot reappear.
+- **The client stops claiming LIVE the moment updates stop flowing.** If the
+  WebSocket errors or closes, the Live Center marks its data "LAST KNOWN" and
+  shows a reconnecting banner. A frozen snapshot is not live coverage.
+- **Dev fixtures are double-gated** (`--fixtures` flag *and*
+  `SPORTS_ENABLE_DEV_FIXTURES`), and `Settings` refuses to start when fixtures
+  are enabled or the dev JWT secret is in use while `debug` is false — so a
+  production deploy fails loudly instead of serving fictional data.
+- **The live simulator** requires dev mode *and* authentication, 404s otherwise,
+  and tags every frame `source: dev-sim`.
 - AI content (Sprint 6) is always tagged `kind: prediction|estimate` end-to-end.
 
 ## 7. Cross-cutting

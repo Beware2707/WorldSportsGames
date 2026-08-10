@@ -43,20 +43,6 @@ async def upcoming_editions(session: AsyncSession, limit: int = 5) -> list[Compe
     return list(result.scalars().all())
 
 
-async def live_editions(session: AsyncSession, limit: int = 10) -> list[CompetitionEdition]:
-    result = await session.execute(
-        select(CompetitionEdition)
-        .where(CompetitionEdition.status == "live")
-        .order_by(CompetitionEdition.start_date.asc().nulls_last())
-        .options(
-            selectinload(CompetitionEdition.competition).selectinload(Competition.sport),
-            selectinload(CompetitionEdition.host_country),
-        )
-        .limit(limit)
-    )
-    return list(result.scalars().all())
-
-
 async def featured_competitions(session: AsyncSession, limit: int = 6) -> list[Competition]:
     result = await session.execute(
         select(Competition)

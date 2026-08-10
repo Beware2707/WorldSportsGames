@@ -12,6 +12,7 @@ import '../../features/live/live_screen.dart';
 import '../../features/profile/profile_screen.dart';
 import '../../features/sports/sport_detail_screen.dart';
 import '../../features/sports/sports_screen.dart';
+import '../widgets/common.dart';
 
 final appRouter = GoRouter(
   initialLocation: '/home',
@@ -41,15 +42,20 @@ final appRouter = GoRouter(
             routes: [
               GoRoute(
                 path: 'editions/:editionId',
-                builder: (_, state) => EditionEventsScreen(
-                    editionId:
-                        int.parse(state.pathParameters['editionId']!)),
+                // Deep links are untrusted input: a non-numeric segment must
+                // render a not-found screen, not throw FormatException out of
+                // the route builder.
+                builder: (_, state) => _byIntParam(
+                  state.pathParameters['editionId'],
+                  (id) => EditionEventsScreen(editionId: id),
+                ),
                 routes: [
                   GoRoute(
                     path: 'events/:eventId',
-                    builder: (_, state) => EventDetailScreen(
-                        eventId:
-                            int.parse(state.pathParameters['eventId']!)),
+                    builder: (_, state) => _byIntParam(
+                      state.pathParameters['eventId'],
+                      (id) => EventDetailScreen(eventId: id),
+                    ),
                   ),
                 ],
               ),
@@ -82,6 +88,21 @@ final appRouter = GoRouter(
     ),
   ],
 );
+
+Widget _byIntParam(String? raw, Widget Function(int) build) {
+  final id = int.tryParse(raw ?? '');
+  if (id == null) {
+    return Scaffold(
+      appBar: AppBar(),
+      body: const EmptyState(
+        icon: Icons.link_off_rounded,
+        title: 'Page not found',
+        message: 'That link points to something we cannot open.',
+      ),
+    );
+  }
+  return build(id);
+}
 
 class _AppShell extends StatelessWidget {
   const _AppShell({required this.shell});

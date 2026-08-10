@@ -50,6 +50,12 @@ class _HomeSectionView extends StatelessWidget {
       // Unknown kinds from newer servers degrade gracefully to nothing.
       _ => const SizedBox.shrink(),
     };
+    if (section.kind == 'live_now' && section.items.isNotEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [SectionHeader(section.title), body],
+      );
+    }
     if (section.kind != 'live_now' && section.items.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -100,7 +106,26 @@ class _HomeSectionView extends StatelessWidget {
         ),
       );
     }
-    return _cardsRow(context);
+    // live_now items are LiveCoverage payloads (event + competition), the
+    // same shape the Live Center consumes — sourced from real live coverage.
+    return SizedBox(
+      height: 148,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+        itemCount: section.items.length,
+        separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
+        itemBuilder: (context, i) {
+          final item = section.items[i];
+          return _LiveNowCard(
+            eventName:
+                (item['event'] as Map<String, dynamic>)['name'] as String,
+            competitionName: item['competition_name'] as String,
+            editionLabel: item['edition_label'] as String,
+          );
+        },
+      ),
+    );
   }
 
   Widget _cardsRow(BuildContext context) {
@@ -140,6 +165,62 @@ class _HomeSectionView extends StatelessWidget {
   }
 }
 
+/// Home card for an event with genuine live coverage.
+class _LiveNowCard extends StatelessWidget {
+  const _LiveNowCard({
+    required this.eventName,
+    required this.competitionName,
+    required this.editionLabel,
+  });
+
+  final String eventName;
+  final String competitionName;
+  final String editionLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SizedBox(
+      width: 240,
+      child: Card(
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => GoRouter.of(context).go('/live'),
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(competitionName,
+                          style: theme.textTheme.bodySmall,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
+                    ),
+                    const LiveBadge(),
+                  ],
+                ),
+                const Spacer(),
+                Text(eventName,
+                    style: theme.textTheme.titleMedium,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis),
+                const SizedBox(height: AppSpacing.xs),
+                Text(editionLabel,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurface
+                            .withValues(alpha: 0.6))),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _EventCard extends StatelessWidget {
   const _EventCard({this.edition, required this.competition});
 
@@ -169,7 +250,13 @@ class _EventCard extends StatelessWidget {
                     Icon(sportIcon(competition.sport?.icon),
                         size: 20, color: theme.colorScheme.primary),
                     const Spacer(),
-                    if (e?.isLive ?? false) const LiveBadge(),
+                    // No LIVE badge here: these are editions, and an edition
+                    // in progress is not live coverage.
+                    if (e?.isInProgress ?? false)
+                      Text('IN PROGRESS',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                              color: AppColors.energy,
+                              fontWeight: FontWeight.w800)),
                   ],
                 ),
                 const Spacer(),

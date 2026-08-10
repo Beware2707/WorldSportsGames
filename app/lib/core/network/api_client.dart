@@ -86,8 +86,23 @@ class ApiClient {
   ApiException _map(DioException e) {
     final status = e.response?.statusCode;
     final data = e.response?.data;
-    if (data is Map && data['detail'] is String) {
-      return ApiException(data['detail'] as String, statusCode: status);
+    if (data is Map) {
+      final detail = data['detail'];
+      if (detail is String) {
+        return ApiException(detail, statusCode: status);
+      }
+      // FastAPI validation errors: detail is a list of {loc, msg, type}.
+      // Surface the actual constraint rather than a generic failure.
+      if (detail is List && detail.isNotEmpty) {
+        final messages = detail
+            .whereType<Map>()
+            .map((e) => e['msg'])
+            .whereType<String>()
+            .toList();
+        if (messages.isNotEmpty) {
+          return ApiException(messages.join('\n'), statusCode: status);
+        }
+      }
     }
     if (status != null) {
       return ApiException('Request failed ($status)', statusCode: status);

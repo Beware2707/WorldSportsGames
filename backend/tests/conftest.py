@@ -4,6 +4,7 @@ import os
 # Empty redis_url = cache + live pub/sub disabled (local-only, deterministic);
 # dev fixtures on so the simulator endpoint is testable.
 os.environ["SPORTS_REDIS_URL"] = ""
+os.environ["SPORTS_DEBUG"] = "true"
 os.environ["SPORTS_ENABLE_DEV_FIXTURES"] = "true"
 
 from collections.abc import AsyncIterator  # noqa: E402

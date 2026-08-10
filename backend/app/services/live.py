@@ -28,6 +28,7 @@ class LiveHub:
         self._reader_task: asyncio.Task | None = None
         self._clients: set[WebSocket] = set()
         self._lock = asyncio.Lock()
+        self._stopping = False
 
     @property
     def distributed(self) -> bool:
@@ -57,9 +58,13 @@ class LiveHub:
             self._pubsub = None
 
     async def stop(self) -> None:
+        self._stopping = True
         if self._reader_task is not None:
             self._reader_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
+            # Suppress ANY stored exception: a reader that already died (e.g.
+            # Redis outage) would otherwise re-raise here and abort lifespan
+            # teardown before the cache is closed.
+            with contextlib.suppress(Exception):
                 await self._reader_task
             self._reader_task = None
         if self._pubsub is not None:
@@ -99,11 +104,39 @@ class LiveHub:
                 await self.unregister(ws)
 
     async def _reader(self) -> None:
-        assert self._pubsub is not None
-        async for raw in self._pubsub.listen():
-            if raw.get("type") != "message":
-                continue
+        """Fan Redis pub/sub messages in to local clients.
+
+        Survives Redis outages: on a connection failure it resubscribes with
+        backoff instead of dying silently, which would leave every replica
+        permanently deaf to live updates.
+        """
+        backoff = 1.0
+        while not self._stopping:
             try:
-                await self._broadcast_local(json.loads(raw["data"]))
+                if self._pubsub is None:
+                    self._pubsub = self._redis.pubsub()
+                    await self._pubsub.subscribe(LIVE_CHANNEL)
+                async for raw in self._pubsub.listen():
+                    if self._stopping:
+                        return
+                    if raw.get("type") != "message":
+                        continue
+                    backoff = 1.0
+                    try:
+                        await self._broadcast_local(json.loads(raw["data"]))
+                    except Exception:
+                        logger.exception("LiveHub: dropping malformed pub/sub message")
+            except asyncio.CancelledError:
+                raise
             except Exception:
-                logger.exception("LiveHub: dropping malformed pub/sub message")
+                if self._stopping:
+                    return
+                logger.warning(
+                    "LiveHub: pub/sub reader lost Redis, resubscribing in %.0fs", backoff
+                )
+                with contextlib.suppress(Exception):
+                    if self._pubsub is not None:
+                        await self._pubsub.aclose()
+                self._pubsub = None
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 30.0)

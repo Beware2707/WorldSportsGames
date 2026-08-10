@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:world_sports_games/data/live_repository.dart';
 import 'package:world_sports_games/data/repositories.dart';
+import 'package:world_sports_games/data/token_store.dart';
 import 'package:world_sports_games/domain/event_models.dart';
 import 'package:world_sports_games/domain/models.dart';
 
@@ -145,6 +146,12 @@ class FakeEventsRepository implements EventsRepository {
   }
 
   @override
+  Future<List<SportEvent>> allEventsForEdition(int editionId) async {
+    _maybeThrow();
+    return const [];
+  }
+
+  @override
   Future<SportEventDetail> eventDetail(int id) async {
     _maybeThrow();
     return SportEventDetail(
@@ -187,12 +194,33 @@ class FakeEventsRepository implements EventsRepository {
 class FakeLiveSocket implements LiveSocket {
   final StreamController<LiveSocketMessage> controller =
       StreamController<LiveSocketMessage>.broadcast();
+  bool closed = false;
 
   @override
   Stream<LiveSocketMessage> connect() => controller.stream;
 
   @override
   void close() {
-    controller.close();
+    closed = true;
   }
+}
+
+/// In-memory TokenStore for auth tests.
+class FakeTokenStore implements TokenStore {
+  FakeTokenStore([this.token]);
+
+  String? token;
+  bool readThrows = false;
+
+  @override
+  Future<String?> read() async {
+    if (readThrows) throw Exception('secure storage unavailable');
+    return token;
+  }
+
+  @override
+  Future<void> write(String value) async => token = value;
+
+  @override
+  Future<void> clear() async => token = null;
 }

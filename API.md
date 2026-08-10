@@ -57,6 +57,13 @@ then `{"type": "update", "event_id", "seq", "kind", "payload"}` frames where
 carry `payload.source = "dev-sim"`. Sports/countries list responses are served
 through a fail-open Redis cache (5-minute TTL).
 
+Clients register for broadcast *before* the snapshot query runs, so no update is
+lost in the gap; frames are ordered by `seq` per event, so a client that sees a
+frame already reflected in its snapshot can discard it by sequence number.
+
+`POST /api/v1/live/dev/simulate` requires dev mode **and** a bearer token; it
+returns 404 (not 401) outside dev mode so the route is invisible in production.
+
 ### Home feed contract
 
 `GET /api/v1/home` returns an ordered list of sections the client renders
