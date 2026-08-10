@@ -11,7 +11,7 @@ deliberate double gate so demo data cannot reach production by accident.
 import argparse
 import asyncio
 import sys
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,7 +26,10 @@ from app.models import (
     Country,
     Discipline,
     Event,
+    Medal,
     Participation,
+    Ranking,
+    Record,
     Result,
     Sport,
 )
@@ -36,6 +39,10 @@ from app.seed.fixtures import (
     DEV_ATHLETES,
     DEV_BIO_PREFIX,
     DEV_EVENTS,
+    DEV_MEDALS,
+    DEV_RANKINGS,
+    DEV_RECORDS,
+    RANKING_AS_OF,
 )
 from app.seed.taxonomy import ICONS, SPORTS
 
@@ -130,7 +137,81 @@ async def seed_dev_fixtures(session: AsyncSession) -> int:
         created += 1
     await session.flush()
     await seed_dev_events(session)
+    await seed_dev_competitive(session)
     return created
+
+
+async def seed_dev_competitive(session: AsyncSession) -> None:
+    """Fictional records, medals and rankings. Idempotent by natural key."""
+    disciplines = {d.code: d for d in (await session.execute(select(Discipline))).scalars()}
+    athletes = {a.slug: a for a in (await session.execute(select(Athlete))).scalars()}
+    countries = {c.iso3: c for c in (await session.execute(select(Country))).scalars()}
+    editions = {
+        (e.competition.slug, e.label): e
+        for e in (
+            await session.execute(
+                select(CompetitionEdition).options(
+                    selectinload(CompetitionEdition.competition)
+                )
+            )
+        ).scalars()
+    }
+
+    have_records = {
+        (r.kind, r.discipline_id, r.event_name, r.gender)
+        for r in (await session.execute(select(Record))).scalars()
+    }
+    for (kind, dcode, event_name, gender, slug, iso3, value_kind, num, text,
+         unit, iso_date, location) in DEV_RECORDS:
+        discipline = disciplines[dcode]
+        if (kind, discipline.id, event_name, gender) in have_records:
+            continue
+        session.add(Record(
+            kind=kind, discipline_id=discipline.id, event_name=event_name,
+            gender=gender,
+            athlete_id=athletes[slug].id if slug else None,
+            country_id=countries[iso3].id if iso3 else None,
+            value_kind=value_kind, value_num=num, value_text=text, unit=unit,
+            set_on=date.fromisoformat(iso_date) if iso_date else None,
+            location=location,
+        ))
+
+    have_medals = {
+        (m.edition_id, m.event_name, m.metal, m.athlete_id)
+        for m in (await session.execute(select(Medal))).scalars()
+    }
+    for (label, comp_slug, dcode, event_name, metal, slug, iso3) in DEV_MEDALS:
+        edition = editions[(comp_slug, label)]
+        athlete_id = athletes[slug].id if slug else None
+        if (edition.id, event_name, metal, athlete_id) in have_medals:
+            continue
+        session.add(Medal(
+            edition_id=edition.id, discipline_id=disciplines[dcode].id,
+            event_name=event_name, metal=metal, athlete_id=athlete_id,
+            country_id=countries[iso3].id,
+        ))
+
+    as_of = date.fromisoformat(RANKING_AS_OF)
+    have_rankings = {
+        (r.scope, r.methodology, r.discipline_id, r.entity_id, r.as_of)
+        for r in (await session.execute(select(Ranking))).scalars()
+    }
+    for methodology, dcode, scope, entries in DEV_RANKINGS:
+        discipline = disciplines[dcode] if dcode else None
+        for key, rank, points in entries:
+            entity = athletes[key] if scope == "athlete" else countries[key]
+            signature = (
+                scope, methodology, discipline.id if discipline else None,
+                entity.id, as_of,
+            )
+            if signature in have_rankings:
+                continue
+            session.add(Ranking(
+                scope=scope, methodology=methodology,
+                discipline_id=discipline.id if discipline else None,
+                sport_id=discipline.sport_id if discipline else None,
+                entity_id=entity.id, rank=rank, points=points, as_of=as_of,
+            ))
 
 
 async def seed_dev_events(session: AsyncSession) -> int:

@@ -31,10 +31,67 @@ class HomeScreen extends ConsumerWidget {
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.only(bottom: AppSpacing.xl),
             children: [
+              const _DiscoverRow(),
               for (final section in sections) _HomeSectionView(section: section),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Entry points to the reference sections that aren't bottom-nav tabs.
+class _DiscoverRow extends StatelessWidget {
+  const _DiscoverRow();
+
+  static const _items = <(IconData, String, String)>[
+    (Icons.workspace_premium_rounded, 'Medals', '/medals'),
+    (Icons.leaderboard_rounded, 'Rankings', '/rankings'),
+    (Icons.military_tech_rounded, 'Records', '/records'),
+    (Icons.person_search_rounded, 'Athletes', '/home/athletes'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SizedBox(
+      height: 104,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(
+            AppSpacing.md, AppSpacing.md, AppSpacing.md, AppSpacing.sm),
+        itemCount: _items.length,
+        separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
+        itemBuilder: (context, i) {
+          final (icon, label, route) = _items[i];
+          return SizedBox(
+            width: 104,
+            child: Card(
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: () => GoRouter.of(context).push(route),
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.sm),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(icon, color: theme.colorScheme.primary),
+                      const SizedBox(height: AppSpacing.xs),
+                      Flexible(
+                        child: Text(label,
+                            style: theme.textTheme.labelLarge,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }

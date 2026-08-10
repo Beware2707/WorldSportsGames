@@ -51,12 +51,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       case 'competition':
         context.push('/competitions/$slug');
       case 'athlete':
+        context.push('/athletes/$slug');
       case 'country':
-        // Athlete and country profiles land in a later sprint; say so rather
-        // than navigating somewhere misleading.
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${suggestion.label} profile is coming soon')),
-        );
+        context.push('/countries/$slug');
     }
   }
 

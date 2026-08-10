@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/athletes/athlete_profile_screen.dart';
 import '../../features/athletes/athletes_screen.dart';
+import '../../features/countries/country_profile_screen.dart';
+import '../../features/countries/medal_table_screen.dart';
 import '../../features/competitions/competition_detail_screen.dart';
 import '../../features/competitions/competitions_screen.dart';
 import '../../features/competitions/edition_events_screen.dart';
@@ -10,6 +13,8 @@ import '../../features/games/games_screen.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/live/live_screen.dart';
 import '../../features/onboarding/onboarding_screen.dart';
+import '../../features/rankings/rankings_screen.dart';
+import '../../features/records/records_screen.dart';
 import '../../features/profile/profile_screen.dart';
 import '../../features/search/search_screen.dart';
 import '../../features/settings/notification_settings_screen.dart';
@@ -23,6 +28,26 @@ final appRouter = GoRouter(
     // Full-screen routes outside the bottom-nav shell.
     GoRoute(path: '/onboarding', builder: (_, _) => const OnboardingScreen()),
     GoRoute(path: '/search', builder: (_, _) => const SearchScreen()),
+    GoRoute(
+      path: '/athletes/:slug',
+      builder: (_, state) =>
+          AthleteProfileScreen(slug: state.pathParameters['slug']!),
+    ),
+    GoRoute(
+      path: '/countries/:iso3',
+      builder: (_, state) =>
+          CountryProfileScreen(iso3: state.pathParameters['iso3']!),
+    ),
+    GoRoute(
+      path: '/events/:eventId',
+      builder: (_, state) => _byIntParam(
+        state.pathParameters['eventId'],
+        (id) => EventDetailScreen(eventId: id),
+      ),
+    ),
+    GoRoute(path: '/rankings', builder: (_, _) => const RankingsScreen()),
+    GoRoute(path: '/records', builder: (_, _) => const RecordsScreen()),
+    GoRoute(path: '/medals', builder: (_, _) => const MedalTableScreen()),
     GoRoute(
       path: '/settings/notifications',
       builder: (_, _) => const NotificationSettingsScreen(),

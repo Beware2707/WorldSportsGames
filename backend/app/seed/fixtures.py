@@ -165,3 +165,83 @@ DEV_EVENTS: list[tuple] = [
         ],
     ),
 ]
+
+# Fictional records/medals/rankings for the fictional athletes above.
+# (kind, discipline_code, event_name, gender, athlete_slug|None, iso3,
+#  value_kind, value_num, value_text, unit, iso_date, location)
+DEV_RECORDS: list[tuple] = [
+    ("WR", "track-field", "100m", "F", "zellie-dunbar", "JAM",
+     "time", 10.54, "10.54", "s", "2025-08-16", "Kingston"),
+    ("OR", "track-field", "100m", "F", "zellie-dunbar", "JAM",
+     "time", 10.71, "10.71", "s", "2024-08-03", "Paris"),
+    ("PB", "track-field", "100m", "F", "amara-okafor", "USA",
+     "time", 10.79, "10.79", "s", "2025-06-21", "Eugene"),
+    ("WR", "marathon", "Marathon", "M", "kiptoo-cherop", "KEN",
+     "time", 7299.0, "2:01:39", None, "2025-09-28", "Berlin"),
+    ("NR", "marathon", "Marathon", "M", "tadesse-worku", "ETH",
+     "time", 7385.0, "2:03:05", None, "2025-04-21", "Rotterdam"),
+    ("WR", "swimming", "200m Freestyle", "F", "marlo-tanaka", "JPN",
+     "time", 112.98, "1:52.98", None, "2025-07-30", "Budapest"),
+    ("SB", "swimming", "200m Freestyle", "F", "harper-quinlan", "AUS",
+     "time", 115.30, "1:55.30", None, "2024-07-29", "Paris"),
+    ("WR", "artistic-gymnastics", "All-Around", "F", "wei-lin-zhao", "CHN",
+     "points", 59.211, "59.211", "pts", "2025-10-05", "Jakarta"),
+    ("CR", "road-cycling", "Individual Time Trial", "F", "colette-marchand",
+     "FRA", "time", 2461.0, "41:01", None, "2025-09-14", "Zurich"),
+    ("NR", "speed-skating", "1500m", "F", "noor-van-dijk", "NED",
+     "time", 111.24, "1:51.24", None, "2026-02-11", "Milan"),
+]
+
+# (edition_label, competition_slug, discipline_code, event_name, metal,
+#  athlete_slug|None, iso3)
+DEV_MEDALS: list[tuple] = [
+    ("Paris 2024", "olympic-games", "track-field", "Women's 100m", "gold",
+     "zellie-dunbar", "JAM"),
+    ("Paris 2024", "olympic-games", "track-field", "Women's 100m", "silver",
+     "amara-okafor", "USA"),
+    ("Paris 2024", "olympic-games", "marathon", "Men's Marathon", "gold",
+     "kiptoo-cherop", "KEN"),
+    ("Paris 2024", "olympic-games", "marathon", "Men's Marathon", "silver",
+     "tadesse-worku", "ETH"),
+    ("Paris 2024", "olympic-games", "marathon", "Men's Marathon", "bronze",
+     "dax-merrow", "GBR"),
+    ("Paris 2024", "olympic-games", "swimming", "Women's 200m Freestyle",
+     "gold", "marlo-tanaka", "JPN"),
+    ("Paris 2024", "olympic-games", "swimming", "Women's 200m Freestyle",
+     "silver", "harper-quinlan", "AUS"),
+    ("Paris 2024", "olympic-games", "artistic-gymnastics",
+     "Women's All-Around", "gold", "wei-lin-zhao", "CHN"),
+    ("Paris 2024", "olympic-games", "road-cycling", "Women's Time Trial",
+     "bronze", "colette-marchand", "FRA"),
+    ("Milano Cortina 2026", "winter-olympic-games", "speed-skating",
+     "Women's 1500m", "gold", "noor-van-dijk", "NED"),
+    ("Milano Cortina 2026", "winter-olympic-games", "alpine-skiing",
+     "Men's Downhill", "gold", "lukas-eberhart", "GER"),
+    ("Milano Cortina 2026", "winter-olympic-games", "figure-skating",
+     "Men's Singles", "silver", "teo-baresi", "ITA"),
+    ("Milano Cortina 2026", "winter-olympic-games", "cross-country-skiing",
+     "Women's 10km", "bronze", "solveig-brandt", "NOR"),
+]
+
+# (methodology, discipline_code|None, scope, [(slug_or_iso3, rank, points)])
+DEV_RANKINGS: list[tuple] = [
+    ("world_ranking", "track-field", "athlete", [
+        ("zellie-dunbar", 1, 1487.0),
+        ("amara-okafor", 2, 1422.0),
+        ("dax-merrow", 3, 1180.0),
+    ]),
+    ("world_ranking", "marathon", "athlete", [
+        ("kiptoo-cherop", 1, 1533.0),
+        ("tadesse-worku", 2, 1498.0),
+    ]),
+    ("world_ranking", "swimming", "athlete", [
+        ("marlo-tanaka", 1, 1402.0),
+        ("harper-quinlan", 2, 1355.0),
+    ]),
+    ("medal_count", None, "country", [
+        ("JAM", 1, 1.0), ("KEN", 2, 1.0), ("JPN", 3, 1.0),
+        ("CHN", 4, 1.0), ("NED", 5, 1.0), ("GER", 6, 1.0),
+    ]),
+]
+
+RANKING_AS_OF = "2026-08-01"
