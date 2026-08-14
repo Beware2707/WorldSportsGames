@@ -24,6 +24,8 @@ from app.models.media import (
     media_country,
     media_sport,
 )
+from app.models.social import AnalyticsEvent, FriendCode, Friendship
+from app.models.tournament import CareerTournament, TournamentRound
 from app.models.user import (
     AppUser,
     Favorite,
@@ -33,10 +35,12 @@ from app.models.user import (
 
 __all__ = [
     "Achievement",
+    "AnalyticsEvent",
     "AppUser",
     "CareerAthlete",
     "CareerAttribute",
     "CareerSave",
+    "CareerTournament",
     "Athlete",
     "Competition",
     "CompetitionEdition",
@@ -44,6 +48,8 @@ __all__ = [
     "Discipline",
     "Event",
     "Favorite",
+    "FriendCode",
+    "Friendship",
     "Game",
     "GameResult",
     "GameSession",
@@ -60,6 +66,7 @@ __all__ = [
     "ResultDetail",
     "Sport",
     "Team",
+    "TournamentRound",
     "UserAchievement",
     "UserPreference",
     "UserProgress",

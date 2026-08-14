@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import CurrentUser, DbSession, OptionalUser
+from app.api.v1.friends import friend_ids
 from app.repositories.games import (
     all_achievements,
     get_country_by_iso3,
@@ -174,10 +175,9 @@ async def game_leaderboard(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Sign in to see this leaderboard",
             )
-        # There is no social graph yet — following an athlete is not a
-        # friendship. Returning an empty pool (and saying so in the client) is
-        # honest; inventing one from follows would be a fabricated ranking.
-        pool = []
+        # Accepted friendships plus yourself — a friends board without you
+        # on it answers a question nobody asked.
+        pool = [*await friend_ids(session, user.id), user.id]
         label = "Friends"
 
     rows = await leaderboard(session, game, limit=limit, user_ids=pool)

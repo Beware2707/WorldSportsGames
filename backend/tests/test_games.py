@@ -252,8 +252,13 @@ async def test_country_leaderboard_scopes_to_followers(client, headers):
     assert r.status_code == 422, "country scope needs a country"
 
 
-async def test_friends_leaderboard_is_honestly_empty(client, headers):
-    """There is no social graph yet — it must not fabricate one from follows."""
+async def test_friends_leaderboard_includes_self_and_only_friends(client, headers):
+    """The friends board is accepted friendships plus the caller.
+
+    (It was honestly empty until the friendship graph existed; now it must
+    show yourself and never show strangers.) Full friend flows are covered in
+    test_friends.py.
+    """
     await client.post(
         "/api/v1/games/sprint-reaction/sessions", json={"score": 260}, headers=headers
     )
@@ -264,7 +269,9 @@ async def test_friends_leaderboard_is_honestly_empty(client, headers):
             headers=headers,
         )
     ).json()
-    assert board["rows"] == []
+    assert [row["display_name"] for row in board["rows"]] == ["Player"], (
+        "yourself on your own friends board; no strangers"
+    )
 
     r = await client.get(
         "/api/v1/games/sprint-reaction/leaderboard", params={"scope": "friends"}

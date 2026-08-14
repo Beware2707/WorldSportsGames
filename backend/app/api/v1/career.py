@@ -5,7 +5,8 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, OptionalUser
+from app.api.v1.friends import friend_ids
 from app.models import CareerAthlete, CareerAttribute, CareerSave, Country, GameResult
 from app.schemas.career import (
     CareerAthleteIn,
@@ -165,16 +166,17 @@ _PERIODS: dict[str, timedelta | None] = {
 @router.get("/leaderboard", response_model=CareerLeaderboardOut)
 async def career_leaderboard(
     session: DbSession,
+    user: OptionalUser,
     event: Annotated[str, Query()],
-    scope: Annotated[str, Query(pattern="^(global|country)$")] = "global",
+    scope: Annotated[str, Query(pattern="^(global|country|friends)$")] = "global",
     country: Annotated[str | None, Query(min_length=3, max_length=3)] = None,
     period: Annotated[str, Query(pattern="^(all_time|weekly|monthly)$")] = "all_time",
     limit: Annotated[int, Query(ge=1, le=100)] = 25,
 ) -> CareerLeaderboardOut:
     """Validated results only, one row per athlete, direction-aware.
 
-    No friends scope yet — there is no social graph, and fabricating one from
-    follows would be a fabricated ranking.
+    The friends scope covers accepted friendships plus the caller — it exists
+    now that a real social graph does, and it requires sign-in.
     """
     definition = EVENTS.get(event)
     if definition is None:
@@ -211,6 +213,14 @@ async def career_leaderboard(
         query = query.join(Country, CareerAthlete.country_id == Country.id).where(
             Country.iso3 == country.upper()
         )
+    elif scope == "friends":
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Sign in to see this leaderboard",
+            )
+        pool = [*await friend_ids(session, user.id), user.id]
+        query = query.where(CareerAthlete.user_id.in_(pool))
 
     from app.services.career import format_value
 
