@@ -5,6 +5,8 @@ import 'package:world_sports_games/data/games_repository.dart';
 import 'package:world_sports_games/domain/game_models.dart';
 import 'package:world_sports_games/domain/models.dart';
 import 'package:world_sports_games/features/games/engines/game_engine.dart';
+import 'package:world_sports_games/core/network/api_client.dart';
+import 'package:world_sports_games/features/games/engines/sequence_engine.dart';
 import 'package:world_sports_games/features/games/game_play_screen.dart';
 import 'package:world_sports_games/features/games/games_screen.dart';
 import 'package:world_sports_games/features/profile/profile_screen.dart';
@@ -37,9 +39,10 @@ const _futureGame = Game(
 );
 
 class FakeGamesRepository implements GamesRepository {
-  FakeGamesRepository({this.catalogue = const [_reactionGame]});
+  FakeGamesRepository({this.catalogue = const [_reactionGame], this.submitError});
 
   final List<Game> catalogue;
+  final Exception? submitError;
   final submitted = <(String, double)>[];
   ScoreResult next = const ScoreResult(
     score: 250,
@@ -66,6 +69,8 @@ class FakeGamesRepository implements GamesRepository {
   Future<ScoreResult> submitScore(
       String code, double score, Map<String, dynamic> detail) async {
     submitted.add((code, score));
+    final err = submitError;
+    if (err != null) throw err;
     return next;
   }
 
@@ -268,6 +273,70 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Game not found'), findsOneWidget);
+    });
+
+    testWidgets('a failed submission does not tell a signed-in player to sign in',
+        (tester) async {
+      final repo = FakeGamesRepository(
+          submitError: const ApiException('Could not record that play'));
+      await tester.pumpWidget(
+          _wrap(const GamePlayScreen(code: 'sprint-reaction'), repo));
+      await tester.pumpAndSettle();
+
+      for (var round = 0; round < 2; round++) {
+        await tester.tap(find.byType(GestureDetector).first);
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 5));
+        await tester.tap(find.byType(GestureDetector).first);
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+
+      expect(find.text('Score not saved'), findsOneWidget);
+      // The real reason (shown in the panel and echoed in the snackbar),
+      // not a misleading "sign in" prompt.
+      expect(find.textContaining('Could not record that play'), findsWidgets);
+      expect(find.textContaining('Play again to retry'), findsOneWidget);
+      expect(find.textContaining('Sign in to earn XP'), findsNothing);
+    });
+  });
+
+  group('sequence engine', () {
+    testWidgets('extra taps after the run ends do not crash or resubmit',
+        (tester) async {
+      var finishCalls = 0;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: SequenceEngine(
+            game: const Game(
+              id: 9,
+              code: 'ski-gates',
+              name: 'Ski Racing',
+              engine: GameEngine.sequence,
+              config: {'gates': 2},
+              scoreDirection: 'higher_better',
+            ),
+            onFinished: (score, detail) => finishCalls++,
+          ),
+        ),
+      ));
+      // Let the reveal animation play out.
+      await tester.pump(const Duration(seconds: 3));
+
+      // Tap every tile several times: at least one is wrong, ending the run,
+      // and further taps must not index past the pattern or resubmit.
+      for (var pass = 0; pass < 3; pass++) {
+        for (var tile = 0; tile < 6; tile++) {
+          final finder = find.text('${tile + 1}');
+          if (finder.evaluate().isNotEmpty) {
+            await tester.tap(finder.first, warnIfMissed: false);
+            await tester.pump();
+          }
+        }
+      }
+
+      expect(tester.takeException(), isNull, reason: 'no RangeError after the run');
+      expect(finishCalls, 1, reason: 'the run must finish exactly once');
     });
   });
 }

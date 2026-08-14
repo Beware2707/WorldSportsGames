@@ -24,12 +24,16 @@ class _GamePlayScreenState extends ConsumerState<GamePlayScreen> {
   double? _localScore;
   bool _submitting = false;
   int _attemptKey = 0;
+  // Distinguishes "not signed in" from "signed in but the save failed" — the
+  // result panel previously told a signed-in player to sign in.
+  String? _submitError;
 
   Future<void> _onFinished(
       Game game, double score, Map<String, dynamic> detail) async {
     setState(() {
       _localScore = score;
       _submitting = true;
+      _submitError = null;
     });
 
     // Signed-out players still get to play; the score simply isn't saved,
@@ -51,6 +55,7 @@ class _GamePlayScreenState extends ConsumerState<GamePlayScreen> {
       ref.invalidate(leaderboardProvider);
     } on ApiException catch (e) {
       messenger.showSnackBar(SnackBar(content: Text(e.message)));
+      if (mounted) setState(() => _submitError = e.message);
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -59,6 +64,7 @@ class _GamePlayScreenState extends ConsumerState<GamePlayScreen> {
   void _playAgain() => setState(() {
         _result = null;
         _localScore = null;
+        _submitError = null;
         _attemptKey++;
       });
 
@@ -110,6 +116,7 @@ class _GamePlayScreenState extends ConsumerState<GamePlayScreen> {
                   score: _localScore!,
                   result: _result,
                   submitting: _submitting,
+                  submitError: _submitError,
                   onPlayAgain: _playAgain,
                 )
               : engine ??
@@ -133,6 +140,7 @@ class _ResultPanel extends StatelessWidget {
     required this.score,
     required this.result,
     required this.submitting,
+    required this.submitError,
     required this.onPlayAgain,
   });
 
@@ -140,6 +148,7 @@ class _ResultPanel extends StatelessWidget {
   final double score;
   final ScoreResult? result;
   final bool submitting;
+  final String? submitError;
   final VoidCallback onPlayAgain;
 
   @override
@@ -205,7 +214,17 @@ class _ResultPanel extends StatelessWidget {
                 ),
               ),
           ],
-        ] else
+        ] else if (submitError != null)
+          // Signed in, but the save failed — telling them to sign in would be
+          // wrong and would hide the real reason.
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.cloud_off_rounded),
+              title: const Text('Score not saved'),
+              subtitle: Text('$submitError Play again to retry.'),
+            ),
+          )
+        else
           Card(
             child: ListTile(
               leading: const Icon(Icons.info_outline_rounded),

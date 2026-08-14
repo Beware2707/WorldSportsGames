@@ -34,8 +34,13 @@ async def latest_as_of(
     query = select(func.max(Ranking.as_of)).where(
         Ranking.scope == scope, Ranking.methodology == methodology
     )
-    if discipline_id is not None:
-        query = query.where(Ranking.discipline_id == discipline_id)
+    # Must scope identically to ranking_entries, or the snapshot date could
+    # come from a ladder the entries query never reads.
+    query = (
+        query.where(Ranking.discipline_id == discipline_id)
+        if discipline_id is not None
+        else query.where(Ranking.discipline_id.is_(None))
+    )
     return (await session.execute(query)).scalar_one_or_none()
 
 
@@ -50,8 +55,15 @@ async def ranking_entries(
     query = select(Ranking).where(
         Ranking.scope == scope, Ranking.methodology == methodology
     )
-    if discipline_id is not None:
-        query = query.where(Ranking.discipline_id == discipline_id)
+    # A ladder is per-discipline OR overall — never both at once. Omitting the
+    # filter when no discipline is given merged every discipline's ladder into
+    # one list, so three athletes each appeared as rank 1. No discipline means
+    # the overall ladder (discipline_id IS NULL), e.g. the country medal count.
+    query = (
+        query.where(Ranking.discipline_id == discipline_id)
+        if discipline_id is not None
+        else query.where(Ranking.discipline_id.is_(None))
+    )
     if as_of is not None:
         query = query.where(Ranking.as_of == as_of)
     query = query.order_by(Ranking.rank).limit(limit)

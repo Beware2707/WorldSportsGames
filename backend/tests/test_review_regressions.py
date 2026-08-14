@@ -364,3 +364,29 @@ async def test_submitting_still_works_after_the_progress_fix(client, score):
     )
     assert r.status_code == 201
     assert r.json()["total_xp"] > 0
+
+
+# ---- rankings ------------------------------------------------------------
+
+
+async def test_default_rankings_do_not_merge_discipline_ladders(client):
+    """With no discipline filter, /rankings must NOT merge every discipline's
+    ladder into one list — that produced three athletes all shown as rank 1.
+    No discipline means the overall (discipline-less) ladder, which for
+    athlete world_ranking honestly has no entries."""
+    r = await client.get("/api/v1/rankings")
+    ranks = [e["rank"] for e in r.json()["entries"]]
+    assert len(ranks) == len(set(ranks)), f"duplicate ranks: {ranks}"
+
+    # Discipline-scoped ladders are unchanged.
+    r = await client.get("/api/v1/rankings", params={"discipline": "track-field"})
+    assert [e["rank"] for e in r.json()["entries"]] == [1, 2, 3]
+
+    # The overall country medal_count ladder (discipline_id NULL) still works.
+    r = await client.get(
+        "/api/v1/rankings", params={"scope": "country", "methodology": "medal_count"}
+    )
+    body = r.json()
+    assert body["entries"], "the overall nations ladder must still resolve"
+    assert body["entries"][0]["entity_name"] == "Jamaica"
+    assert body["as_of"] == "2026-08-01"

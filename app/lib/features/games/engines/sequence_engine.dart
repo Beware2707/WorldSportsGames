@@ -31,6 +31,7 @@ class _SequenceEngineState extends State<SequenceEngine> {
   int _cursor = 0;
   int _revealIndex = 0;
   bool _revealing = true;
+  bool _finished = false;
   int? _highlight;
 
   @override
@@ -55,16 +56,23 @@ class _SequenceEngineState extends State<SequenceEngine> {
   }
 
   void _tap(int tile) {
-    if (_revealing) return;
+    // Terminal guard. Without it a tap after the run ended indexed
+    // _pattern[_cursor] past the end (RangeError) once the pattern was
+    // completed, and every extra tap submitted another score.
+    if (_revealing || _finished) return;
+
     if (tile == _pattern[_cursor]) {
       setState(() => _cursor++);
-      if (_cursor >= _pattern.length) {
-        widget.onFinished(_cursor.toDouble(), {'gates': _pattern.length});
-      }
+      if (_cursor >= _pattern.length) _finish();
     } else {
       // First mistake ends the run — the score is what you cleared.
-      widget.onFinished(_cursor.toDouble(), {'gates': _pattern.length});
+      _finish();
     }
+  }
+
+  void _finish() {
+    _finished = true;
+    widget.onFinished(_cursor.toDouble(), {'gates': _pattern.length});
   }
 
   @override
