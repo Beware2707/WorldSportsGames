@@ -1,4 +1,10 @@
 from app.models.athlete import Athlete, athlete_discipline
+from app.models.career import (
+    CareerAthlete,
+    CareerAttribute,
+    CareerSave,
+    GameResult,
+)
 from app.models.catalog import Country, Discipline, Sport
 from app.models.competition import Competition, CompetitionEdition
 from app.models.competitive import Medal, Ranking, Record, Team, Venue
@@ -28,6 +34,9 @@ from app.models.user import (
 __all__ = [
     "Achievement",
     "AppUser",
+    "CareerAthlete",
+    "CareerAttribute",
+    "CareerSave",
     "Athlete",
     "Competition",
     "CompetitionEdition",
@@ -36,6 +45,7 @@ __all__ = [
     "Event",
     "Favorite",
     "Game",
+    "GameResult",
     "GameSession",
     "LiveEvent",
     "LiveUpdate",
