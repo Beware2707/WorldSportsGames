@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession
@@ -126,7 +127,11 @@ async def submit_round_result(
     field — the client never reports its own placing.
     """
     athlete = await _require_athlete(session, user.id)
-    tournament = await get_tournament(session, tournament_id, athlete.id)
+    # for_update serializes concurrent submissions to the same round: the
+    # loser sees the round already scored (open_round -> None) below.
+    tournament = await get_tournament(
+        session, tournament_id, athlete.id, for_update=True
+    )
     if tournament is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Tournament not found"
@@ -180,7 +185,17 @@ async def submit_round_result(
     round_row = await apply_round_result(
         session, tournament, round_row, result_row.value_num, result_row.id
     )
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        # uq_tournament_round: a concurrent submission advanced this round
+        # first and inserted the same next round. The other request's advance
+        # stands; this one is a no-op conflict.
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This round was already completed",
+        ) from None
 
     return TournamentResultOut(
         accepted=True,

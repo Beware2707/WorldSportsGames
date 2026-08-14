@@ -1,7 +1,11 @@
+import math
 from contextlib import asynccontextmanager
+from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.ai.deterministic import DeterministicProvider
@@ -39,6 +43,24 @@ def _build_ai_provider(settings):
     return DeterministicProvider()
 
 
+def _sanitize(value: Any) -> Any:
+    """Coerce a validation-error structure into something JSON can encode.
+
+    Two hazards: non-finite floats (the NaN/inf we reject echoed back as
+    ``input``) and arbitrary objects Pydantic attaches under ``ctx`` (e.g. the
+    ``ValueError`` a field validator raised). Both become strings so the 422
+    body always serializes."""
+    if isinstance(value, bool | int | str) or value is None:
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else str(value)
+    if isinstance(value, dict):
+        return {str(k): _sanitize(v) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [_sanitize(v) for v in value]
+    return str(value)  # exceptions and any other non-JSON object
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings.log_level)
@@ -67,6 +89,20 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(v1_router)
+
+    @app.exception_handler(RequestValidationError)
+    async def _validation_handler(request: Request, exc: RequestValidationError):
+        """Return a clean 422, stripping non-finite values from the echo.
+
+        FastAPI's default handler echoes the offending input back in the error
+        body; when that input is NaN/Infinity (which we reject on purpose),
+        the response itself fails to serialize (JSON has no NaN), turning our
+        422 into a 500. Sanitizing the echo keeps the rejection a 422.
+        """
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": _sanitize(exc.errors())},
+        )
 
     # Constructed eagerly so routes work without lifespan (e.g. test transports);
     # lifespan only manages network resources (Redis reader, connections).

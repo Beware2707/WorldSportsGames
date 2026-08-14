@@ -237,18 +237,16 @@ def test_ceiling_model_shape():
     assert zero == pytest.approx(13.5)
 
 
-async def test_result_rate_limit_is_per_athlete(client, headers, athlete):
+async def test_result_rate_limit_fires(client, headers, athlete):
+    # Per-athlete scoping and the rejection reason are asserted in
+    # test_career_review_fixes.py; here we only confirm the cap engages.
     codes = []
     for i in range(12):
         r = await client.post(
             "/api/v1/career/results", json=_valid_run(12.5 + i * 0.01), headers=headers
         )
         codes.append(r.json()["accepted"])
-    assert False in codes, "the 11th+ result in a minute must be rejected"
-    rejected = [
-        c for c in codes if c is False
-    ]
-    assert len(rejected) >= 2
+    assert codes.count(False) >= 2, "the 11th+ result in a minute must be rejected"
 
 
 async def test_unknown_event_404s(client, headers, athlete):

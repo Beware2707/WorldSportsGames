@@ -10,7 +10,15 @@ control.
 
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, func
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -55,6 +63,12 @@ class TournamentRound(Base):
     """
 
     __tablename__ = "tournament_round"
+    # Each round name occurs once per tournament. This is the enforceable
+    # guard against two concurrent round submissions both advancing and each
+    # inserting the next round: the second insert hits this constraint.
+    __table_args__ = (
+        UniqueConstraint("tournament_id", "round_name", name="uq_tournament_round"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     tournament_id: Mapped[int] = mapped_column(

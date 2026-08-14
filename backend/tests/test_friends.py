@@ -164,7 +164,15 @@ async def test_games_friends_leaderboard_is_real_now(client, alice, bob):
 
 
 async def test_career_friends_leaderboard(client, alice, bob):
-    for headers, name, time in [(alice, "Alice A", 12.6), (bob, "Bob B", 12.3)]:
+    cara = await _login(client, CARA)
+    # Cara is faster than both but is NOT a friend — a no-op filter would
+    # leak her onto the board (and to the top), so she is the discriminating
+    # case the earlier version lacked.
+    for headers, name, time in [
+        (alice, "Alice A", 12.6),
+        (bob, "Bob B", 12.3),
+        (cara, "Cara C", 11.95),
+    ]:
         await client.post(
             "/api/v1/career/athlete",
             json={"name": name, "gender": "X"},
@@ -190,7 +198,8 @@ async def test_career_friends_leaderboard(client, alice, bob):
             headers=alice,
         )
     ).json()
-    assert [row["athlete_name"] for row in board["rows"]] == ["Bob B", "Alice A"]
+    names = [row["athlete_name"] for row in board["rows"]]
+    assert names == ["Bob B", "Alice A"], f"non-friend Cara leaked in: {names}"
 
     r = await client.get(
         "/api/v1/career/leaderboard",

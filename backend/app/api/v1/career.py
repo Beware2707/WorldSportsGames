@@ -2,7 +2,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession, OptionalUser
@@ -268,27 +269,60 @@ async def put_save(body: SaveIn, session: DbSession, user: CurrentUser) -> SaveO
     save = await session.get(CareerSave, user.id)
     current_version = save.version if save else 0
 
+    # The common conflict — base_version doesn't match what's stored — is
+    # detected by this read, so no exception is needed for it. The remaining
+    # races (two first-writes; two writes from the same version) are caught by
+    # DB-level guards below, never by a Python check-then-set that would let
+    # the second write silently clobber the first (the §30 loss).
     if body.base_version != current_version:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "message": "Save conflict: another device wrote first",
-                "server": {
-                    "payload": save.payload if save else {},
-                    "version": current_version,
-                },
-                "suggested_merge": merge_saves(
-                    save.payload if save else {}, body.payload
-                ),
-            },
-        )
+        return _save_conflict(save, body.payload)
 
     if save is None:
         save = CareerSave(user_id=user.id, payload=body.payload, version=1)
         session.add(save)
-    else:
-        save.payload = body.payload
-        save.version += 1
+        try:
+            await session.commit()
+        except IntegrityError:
+            # A concurrent first write won the primary key.
+            await session.rollback()
+            return _save_conflict(await session.get(CareerSave, user.id), body.payload)
+        await session.refresh(save)
+        return SaveOut(
+            payload=save.payload, version=save.version, updated_at=save.updated_at
+        )
+
+    # Version-conditional UPDATE with RETURNING: if a concurrent write already
+    # bumped the version, zero rows match and this is a conflict. RETURNING
+    # gives us the post-update version/timestamp in the same round-trip, so we
+    # never re-fetch a stale identity-mapped object after a Core update.
+    result = await session.execute(
+        update(CareerSave)
+        .where(
+            CareerSave.user_id == user.id,
+            CareerSave.version == body.base_version,
+        )
+        .values(payload=body.payload, version=CareerSave.version + 1)
+        .returning(CareerSave.version, CareerSave.updated_at)
+    )
+    row = result.first()
+    if row is None:
+        await session.rollback()
+        return _save_conflict(await session.get(CareerSave, user.id), body.payload)
     await session.commit()
-    await session.refresh(save)
-    return SaveOut(payload=save.payload, version=save.version, updated_at=save.updated_at)
+    return SaveOut(payload=body.payload, version=row[0], updated_at=row[1])
+
+
+def _save_conflict(save, client_payload: dict) -> None:
+    """Raise a 409 with the server state and an additive merge suggestion."""
+    server_payload = save.payload if save else {}
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "message": "Save conflict: another device wrote first",
+            "server": {
+                "payload": server_payload,
+                "version": save.version if save else 0,
+            },
+            "suggested_merge": merge_saves(server_payload, client_payload),
+        },
+    )

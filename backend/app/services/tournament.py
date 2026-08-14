@@ -104,26 +104,38 @@ async def country_pool(session: AsyncSession) -> list[str]:
 
 
 async def get_tournament(
-    session: AsyncSession, tournament_id: int, athlete_id: int
+    session: AsyncSession,
+    tournament_id: int,
+    athlete_id: int,
+    for_update: bool = False,
 ) -> CareerTournament | None:
-    """Owner-scoped fetch: another athlete's tournament is invisible."""
-    return (
-        await session.execute(
-            select(CareerTournament)
-            .where(
-                CareerTournament.id == tournament_id,
-                CareerTournament.career_athlete_id == athlete_id,
-            )
-            .options(
-                selectinload(CareerTournament.rounds),
-                # apply_round_result reads athlete attributes for the next
-                # round's field and medal XP — eager-load or MissingGreenlet.
-                selectinload(CareerTournament.athlete).selectinload(
-                    CareerAthlete.attributes
-                ),
-            )
+    """Owner-scoped fetch: another athlete's tournament is invisible.
+
+    ``for_update`` locks the tournament row so two concurrent round
+    submissions serialize — the second sees the round already scored and is
+    rejected rather than double-advancing. (No-op on SQLite; enforced on
+    Postgres, backed up by the uq_tournament_round constraint either way.)
+    """
+    query = (
+        select(CareerTournament)
+        .where(
+            CareerTournament.id == tournament_id,
+            CareerTournament.career_athlete_id == athlete_id,
         )
-    ).scalar_one_or_none()
+        .options(
+            selectinload(CareerTournament.rounds),
+            # apply_round_result reads athlete attributes for the next round's
+            # field and medal XP — eager-load or MissingGreenlet.
+            selectinload(CareerTournament.athlete).selectinload(
+                CareerAthlete.attributes
+            ),
+        )
+    )
+    if for_update:
+        # Lock the tournament row only (selectinload runs separate queries, so
+        # a join-wide FOR UPDATE is neither needed nor valid here).
+        query = query.with_for_update(of=CareerTournament)
+    return (await session.execute(query)).scalar_one_or_none()
 
 
 async def active_tournament(

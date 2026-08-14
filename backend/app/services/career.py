@@ -171,7 +171,13 @@ def validate_submission(
                 f"recorded time ({value:.3f}s)"
             )
 
-    # 4. Attribute ceiling.
+    # 4. Wind legality. A tailwind over +2.0 m/s is wind-assisted and cannot
+    #    stand as a record-eligible mark under World Athletics rules — so a
+    #    time set with a huge tailwind must not top a leaderboard.
+    if submission.wind is not None and submission.wind > 2.0:
+        return f"wind {submission.wind:+.1f} m/s exceeds the +2.0 legal limit"
+
+    # 5. Attribute ceiling.
     ceiling = attribute_ceiling(event, attributes)
     if event.lower_is_better:
         if value < ceiling - 0.01:
@@ -264,6 +270,17 @@ async def record_result(
     """
     event = submission.event
 
+    # Lock the athlete row so concurrent submissions for the same athlete
+    # serialize: the count-then-insert rate check is otherwise a TOCTOU race
+    # where a burst all read the same stale count and all insert. (No-op on
+    # SQLite; enforced on Postgres, which is where a burst would land.) Also
+    # serializes the total_xp increment below against lost updates.
+    await session.execute(
+        select(CareerAthlete.id)
+        .where(CareerAthlete.id == athlete.id)
+        .with_for_update()
+    )
+
     reason = validate_submission(submission, attributes_dict(athlete))
     if reason is None:
         count = await recent_result_count(session, athlete.id, timedelta(minutes=1))
@@ -323,20 +340,55 @@ _MONOTONIC_KEYS = ("total_xp", "sessions_played")
 _UNION_KEYS = ("unlocks", "achievements", "cosmetics")
 
 
+def _numeric_max(a, b):
+    """max() over values that may not be comparable numbers.
+
+    The payload is arbitrary client JSON, so a monotonic key could arrive as a
+    string. Only compare when both sides are real numbers (and not bools);
+    otherwise fall back to the newer write rather than raising."""
+    a_num = isinstance(a, int | float) and not isinstance(a, bool)
+    b_num = isinstance(b, int | float) and not isinstance(b, bool)
+    if a_num and b_num:
+        return max(a, b)
+    return b if b is not None else a
+
+
+def _union_lists(a, b) -> list:
+    """Union of two collections that may hold unhashable objects.
+
+    Hashable items (ids as strings/ints) de-duplicate; object items (e.g.
+    ``{"id": "x"}``) are compared by value since they cannot go in a set.
+    Never raises on the client's chosen shape — a merge that 500s defeats the
+    whole point of returning a merge suggestion."""
+    a = a if isinstance(a, list) else []
+    b = b if isinstance(b, list) else []
+    merged: list = []
+    for item in [*a, *b]:
+        if item not in merged:
+            merged.append(item)
+    try:
+        return sorted(merged)
+    except TypeError:
+        # Mixed or unorderable types — preserve union order rather than crash.
+        return merged
+
+
 def merge_saves(ours: dict, theirs: dict) -> dict:
     """Additive merge of two save payloads.
 
-    Monotonic counters take the max; unlock collections take the union;
-    for any other key the newer write (``theirs``) wins, which is safe only
-    because the caller has already surfaced the conflict to the player.
+    Monotonic counters take the max; unlock collections take the union; any
+    other key takes the newer write (``theirs``), which is safe only because
+    the caller has already surfaced the conflict to the player.
+
+    Total-function by construction: ``ours``/``theirs`` are arbitrary client
+    JSON, and this runs while building a 409 body — an exception here would
+    turn the conflict response into a 500 and hide the merge the client needs.
     """
     merged = {**ours, **theirs}
     for key in _MONOTONIC_KEYS:
         if key in ours or key in theirs:
-            merged[key] = max(ours.get(key, 0), theirs.get(key, 0))
+            merged[key] = _numeric_max(ours.get(key), theirs.get(key))
     for key in _UNION_KEYS:
         if key in ours or key in theirs:
-            merged[key] = sorted(
-                set(ours.get(key, [])) | set(theirs.get(key, []))
-            )
+            merged[key] = _union_lists(ours.get(key), theirs.get(key))
     return merged
