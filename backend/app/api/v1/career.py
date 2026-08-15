@@ -130,6 +130,14 @@ async def submit_result(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Unknown event {body.event!r}"
         )
 
+    # Idempotent replay: a client that timed out, crashed, or flushed its
+    # offline queue resends the same client_ref. Answer with the ORIGINAL
+    # outcome instead of recording (and rewarding) the run twice.
+    if body.client_ref is not None:
+        existing = await _result_by_client_ref(session, athlete.id, body.client_ref)
+        if existing is not None:
+            return _result_out(existing, event, athlete)
+
     row, improved = await record_result(
         session,
         athlete,
@@ -141,9 +149,24 @@ async def submit_result(
             wind=body.wind,
             rng_seed=body.rng_seed,
             input_digest=body.input_digest,
+            client_ref=body.client_ref,
         ),
     )
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Two replays raced past the pre-check; uq_game_result_client_ref
+        # kept one row. Serve the winner's stored outcome.
+        await session.rollback()
+        athlete = await get_athlete_for_user(session, user.id)
+        existing = (
+            await _result_by_client_ref(session, athlete.id, body.client_ref)
+            if body.client_ref is not None
+            else None
+        )
+        if existing is None:
+            raise
+        return _result_out(existing, event, athlete)
 
     return ResultOut(
         accepted=row.is_valid,
@@ -151,6 +174,37 @@ async def submit_result(
         event=event.code,
         value_text=row.value_text,
         is_personal_best=improved,
+        xp_awarded=row.xp_awarded,
+        total_xp=athlete.total_xp,
+        career_stage=athlete.career_stage,
+    )
+
+
+async def _result_by_client_ref(
+    session, athlete_id: int, client_ref: str
+) -> GameResult | None:
+    return (
+        await session.execute(
+            select(GameResult).where(
+                GameResult.career_athlete_id == athlete_id,
+                GameResult.client_ref == client_ref,
+            )
+        )
+    ).scalar_one_or_none()
+
+
+def _result_out(row: GameResult, event, athlete) -> ResultOut:
+    """The stored outcome of a previously recorded submission.
+
+    total_xp/career_stage are the athlete's CURRENT values — the truthful
+    progression state now, which is what a replaying client needs to display.
+    """
+    return ResultOut(
+        accepted=row.is_valid,
+        rejection_reason=row.rejection_reason,
+        event=event.code,
+        value_text=row.value_text,
+        is_personal_best=row.was_pb,
         xp_awarded=row.xp_awarded,
         total_xp=athlete.total_xp,
         career_stage=athlete.career_stage,

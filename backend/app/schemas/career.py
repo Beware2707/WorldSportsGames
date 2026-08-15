@@ -58,6 +58,9 @@ class ResultIn(BaseModel):
     wind: FiniteFloat | None = Field(default=None, ge=-20, le=20)
     rng_seed: str | None = Field(default=None, max_length=64)
     input_digest: str | None = Field(default=None, max_length=128)
+    # Idempotency key: a resubmission (client timeout, crash, offline-queue
+    # replay) reuses the ref and is answered with the stored outcome.
+    client_ref: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class ResultOut(BaseModel):

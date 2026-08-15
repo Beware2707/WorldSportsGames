@@ -50,6 +50,12 @@ struct WORLDSPORTS_API FWSEventResult
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldSports")
 	FString InputDigest;
 
+	/** Client-generated idempotency key. A resubmission (timeout, crash,
+	 * queue replay) carries the same ref, so the server can answer with the
+	 * original outcome instead of double-recording. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldSports")
+	FString ClientRef;
+
 	/**
 	 * Wire form of backend ResultIn. Returns nullptr if any numeric field is
 	 * non-finite — the server rejects NaN/Infinity, and a client must never

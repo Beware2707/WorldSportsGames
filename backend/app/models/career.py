@@ -18,6 +18,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -100,6 +101,17 @@ class GameResult(Base):
     __table_args__ = (
         Index("ix_game_result_board", "event_code", "is_valid", "value_num"),
         Index("ix_game_result_athlete", "career_athlete_id", "created_at"),
+        # One row per client submission attempt: a replay (timeout, crash,
+        # offline-queue flush) carries the same client_ref and must be
+        # answered with the stored outcome, never recorded twice.
+        Index(
+            "uq_game_result_client_ref",
+            "career_athlete_id",
+            "client_ref",
+            unique=True,
+            postgresql_where=text("client_ref IS NOT NULL"),
+            sqlite_where=text("client_ref IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -117,9 +129,14 @@ class GameResult(Base):
     # leaderboard-topping results.
     rng_seed: Mapped[str | None] = mapped_column(String(64))
     input_digest: Mapped[str | None] = mapped_column(String(128))
+    # Client-generated idempotency key; NULL for clients that do not send one.
+    client_ref: Mapped[str | None] = mapped_column(String(64))
     is_valid: Mapped[bool] = mapped_column(default=True, index=True)
     rejection_reason: Mapped[str | None] = mapped_column(String(200))
     xp_awarded: Mapped[int] = mapped_column(default=0)
+    # Stored so a replayed submission can be answered with the ORIGINAL
+    # outcome; recomputing "was it a PB?" later would compare against itself.
+    was_pb: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

@@ -63,6 +63,10 @@ TSharedPtr<FJsonObject> FWSEventResult::ToRequestJson() const
 	{
 		Json->SetStringField(TEXT("input_digest"), InputDigest);
 	}
+	if (!ClientRef.IsEmpty())
+	{
+		Json->SetStringField(TEXT("client_ref"), ClientRef);
+	}
 	return Json;
 }
 
@@ -91,13 +95,14 @@ bool FWSEventResult::FromRequestJson(const TSharedPtr<FJsonObject>& Json, FWSEve
 	}
 	Json->TryGetStringField(TEXT("rng_seed"), Out.RngSeed);
 	Json->TryGetStringField(TEXT("input_digest"), Out.InputDigest);
+	Json->TryGetStringField(TEXT("client_ref"), Out.ClientRef);
 	return true;
 }
 
 bool FWSEventResult::EquivalentTo(const FWSEventResult& Other, double Tolerance) const
 {
 	if (EventCode != Other.EventCode || RngSeed != Other.RngSeed ||
-		InputDigest != Other.InputDigest ||
+		InputDigest != Other.InputDigest || ClientRef != Other.ClientRef ||
 		bHasReactionMs != Other.bHasReactionMs || bHasWind != Other.bHasWind ||
 		Splits.Num() != Other.Splits.Num())
 	{

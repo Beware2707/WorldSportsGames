@@ -46,6 +46,9 @@ private:
 	bool TickFlush(float DeltaTime);
 
 	TArray<FPendingEvent> Buffer;
-	bool bFlushInFlight = false;
+	/** The batch currently on the wire, spliced OUT of Buffer so that cap
+	 * trimming and new Track() calls can never touch entries whose fate the
+	 * in-flight request will decide. */
+	TArray<FPendingEvent> InFlight;
 	FTSTicker::FDelegateHandle TickerHandle;
 };

@@ -31,8 +31,17 @@ enum class EWSSubmitOutcome : uint8
 {
 	Accepted,      // server validated it and awarded XP
 	Rejected,      // server answered: not a valid performance (reason attached)
-	Queued,        // no connectivity; persisted locally, will retry
-	Failed         // server answered with an unexpected error status
+	Queued,        // persisted locally; will be (re)sent when possible
+	Failed         // definitively unprocessable; dropped with a loud log
+};
+
+/** What a POST /career/results HTTP status means for the queued entry. */
+enum class EWSSubmitDisposition : uint8
+{
+	Definitive,    // 2xx: parse the outcome, dequeue
+	AuthExpired,   // 401/403: auth rejected BEFORE processing; keep, halt, re-auth
+	Retryable,     // 408/429/5xx: keep the entry, halt the flush, retry later
+	Fatal          // remaining 4xx: the submission itself can never succeed; drop
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FWSOnAuthChanged, bool, bSignedIn);
@@ -78,9 +87,15 @@ public:
 	// -- Results ------------------------------------------------------------
 
 	/**
-	 * Persist the result to the offline queue FIRST, then try the network.
-	 * Callback fires with Accepted/Rejected/Failed once the server answers,
-	 * or Queued immediately when there is no connectivity.
+	 * Persist the result to the per-user offline queue FIRST, then try the
+	 * network. The callback fires EXACTLY ONCE with the first known outcome:
+	 * Accepted/Rejected/Failed if the server answers this attempt, otherwise
+	 * Queued (offline, session expired, or waiting behind older entries) —
+	 * never silence, so no caller can hang on it. Later server outcomes for
+	 * queued entries arrive via OnResultSubmitted.
+	 *
+	 * Results without a ClientRef get one here; replays after a timeout or
+	 * crash resend the same ref and the server answers idempotently.
 	 */
 	void SubmitResult(const FWSEventResult& Result, FWSSubmitCallback Callback = nullptr);
 
@@ -109,18 +124,28 @@ public:
 	static TArray<FString> SerializeQueue(const TArray<FWSEventResult>& Queue);
 	static TArray<FWSEventResult> DeserializeQueue(const TArray<FString>& Serialized);
 
+	/** Pure classification of a result-POST status code, exposed for tests. */
+	static EWSSubmitDisposition ClassifyResultStatus(int32 StatusCode);
+
 private:
 	void SendRequest(const FString& Verb, const FString& Path,
 		const FString& ContentType, const FString& Content,
 		FWSHttpCallback Callback, bool bAuthorized, int32 AttemptsLeft);
 	void ScheduleRetry(TFunction<void()> Retry, int32 AttemptsLeft);
 	void SaveQueueToDisk() const;
-	void LoadQueueFromDisk();
+	void SwitchQueueUser(int32 UserId);
 	void SubmitQueueHead();
 	void FinishQueueHead(EWSSubmitOutcome Outcome, const FWSResultResponse& Response, const FString& Error);
+	/** Flush cannot continue (offline / auth expired): every waiter that has
+	 * not heard anything yet gets its one Queued notification. */
+	void NotifyAllQueuedAndHalt(const FString& Reason);
+	FString QueueSlotForUser(int32 UserId) const;
 
 	FString AccessToken;
 	FWSUserDto SignedInUser;
+	/** Owner of the loaded offline queue; survives token expiry so queued
+	 * results are never attributed to a later account. 0 = none loaded. */
+	int32 QueueUserId = 0;
 	TArray<FWSEventResult> OfflineQueue;
 	TArray<FWSSubmitCallback> QueueCallbacks; // parallel to OfflineQueue
 	bool bQueueFlushInFlight = false;

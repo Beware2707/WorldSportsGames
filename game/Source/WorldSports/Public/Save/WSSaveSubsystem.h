@@ -33,7 +33,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "WorldSports|Save")
 	FString GetPayloadJson() const;
 
-	/** Replace the local payload and persist to disk. Marks the save dirty. */
+	/** Replace the local payload and persist to disk. Marks the save dirty.
+	 * Returns false — and stores nothing — for non-JSON input, payloads over
+	 * the server's 8 KB cap (they could never sync), or a failed disk write. */
 	bool SetPayloadJson(const FString& PayloadJson);
 
 	/** Pull the server save. Clean local state adopts the server's; a dirty
@@ -58,9 +60,20 @@ private:
 	void HandleAuthChanged(bool bSignedIn);
 
 	void PushInternal(FWSSyncCallback Callback, bool bRetryOnConflict);
-	void PersistLocal();
+	bool PersistLocal();
+	void LoadSlot(const FString& SlotName);
 	class UWSOnlineSubsystem* Online() const;
 
 	UPROPERTY()
 	TObjectPtr<UWSLocalSave> LocalSave;
+
+	/** Slot the current LocalSave came from. Per-account once signed in, so a
+	 * shared device can never push one player's progress into another's
+	 * cloud save. */
+	FString ActiveSlotName;
+
+	/** Bumped by every SetPayloadJson. In-flight pull/push completions compare
+	 * against their captured value: a response computed from a stale snapshot
+	 * must not clear the dirty flag or overwrite newer local edits. */
+	uint64 EditGeneration = 0;
 };

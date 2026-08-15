@@ -241,3 +241,76 @@ async def test_slow_reaction_and_short_split_are_rejected(client, headers):
     run["splits"] = [0.0] + run["splits"][1:]
     r = await client.post("/api/v1/career/results", json=run, headers=headers)
     assert r.json()["accepted"] is False
+
+
+async def test_result_replay_with_client_ref_is_idempotent(client, headers):
+    """A resent submission (same client_ref) must not double-record or
+    double-reward — it gets the ORIGINAL outcome back.
+
+    This is what makes the game client's retry/offline-queue policy safe:
+    'when in doubt, keep the entry and resend' only never loses AND never
+    double-awards if the server answers replays idempotently.
+    """
+    await client.post(
+        "/api/v1/career/athlete",
+        json={"name": "Replay Runner", "gender": "X"},
+        headers=headers,
+    )
+    body = {
+        "event": "sprint-100m",
+        "value_num": 12.2,
+        "reaction_ms": 180,
+        "splits": [round((12.2 - 0.18) / 10, 4)] * 10,
+        "client_ref": "run-0001",
+    }
+    first = (
+        await client.post("/api/v1/career/results", json=body, headers=headers)
+    ).json()
+    assert first["accepted"] is True
+    assert first["xp_awarded"] > 0
+
+    replay = (
+        await client.post("/api/v1/career/results", json=body, headers=headers)
+    ).json()
+    assert replay["accepted"] is True
+    assert replay["xp_awarded"] == first["xp_awarded"], "original award, not a new one"
+    assert replay["is_personal_best"] == first["is_personal_best"]
+    # The tell: total_xp must NOT have grown on the replay.
+    assert replay["total_xp"] == first["total_xp"], "replay must not double-award XP"
+
+    # A different ref is a genuinely new run and earns again.
+    second = dict(body, client_ref="run-0002", value_num=12.3,
+                  splits=[round((12.3 - 0.18) / 10, 4)] * 10)
+    fresh = (
+        await client.post("/api/v1/career/results", json=second, headers=headers)
+    ).json()
+    assert fresh["total_xp"] > first["total_xp"]
+
+
+async def test_rejected_result_replay_returns_original_rejection(client, headers):
+    """Replaying a rejected run re-serves the rejection — it must not get a
+    second chance at validation, and must not earn anything."""
+    await client.post(
+        "/api/v1/career/athlete",
+        json={"name": "False Starter", "gender": "X"},
+        headers=headers,
+    )
+    body = {
+        "event": "sprint-100m",
+        "value_num": 12.2,
+        "reaction_ms": 40,  # false start: below the 100ms floor
+        "splits": [round((12.2 - 0.04) / 10, 4)] * 10,
+        "client_ref": "run-cheat",
+    }
+    first = (
+        await client.post("/api/v1/career/results", json=body, headers=headers)
+    ).json()
+    assert first["accepted"] is False
+    assert first["xp_awarded"] == 0
+
+    replay = (
+        await client.post("/api/v1/career/results", json=body, headers=headers)
+    ).json()
+    assert replay["accepted"] is False
+    assert replay["rejection_reason"] == first["rejection_reason"]
+    assert replay["xp_awarded"] == 0

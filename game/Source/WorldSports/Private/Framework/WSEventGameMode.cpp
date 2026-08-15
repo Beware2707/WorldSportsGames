@@ -56,11 +56,17 @@ void AWSEventGameMode::SubmitLocalResult(const FWSEventResult& Result)
 		return;
 	}
 	SetPhase(EWSEventPhase::Submit);
+	// The callback outlives level travel on the GameInstance-lifetime queue;
+	// a raw `this` here is a use-after-free once the player exits mid-submit.
+	TWeakObjectPtr<AWSEventGameMode> WeakThis(this);
 	Online->SubmitResult(Result,
-		[this](EWSSubmitOutcome Outcome, const FWSResultResponse&, const FString&)
+		[WeakThis](EWSSubmitOutcome Outcome, const FWSResultResponse&, const FString&)
 		{
 			// Queued still reaches Reward: the local result stands, the
 			// authoritative numbers arrive whenever connectivity returns.
-			SetPhase(EWSEventPhase::Reward);
+			if (AWSEventGameMode* Self = WeakThis.Get())
+			{
+				Self->SetPhase(EWSEventPhase::Reward);
+			}
 		});
 }

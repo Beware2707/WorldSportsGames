@@ -21,6 +21,9 @@ bool FWSOfflineQueueRoundTripTest::RunTest(const FString&)
 		Result.ReactionMs = 150.0 + Index;
 		Result.Splits = {1.9, 1.0, 0.95};
 		Result.RngSeed = FString::Printf(TEXT("seed-%d"), Index);
+		// The idempotency key MUST survive the disk round trip — a replayed
+		// submission with a fresh ref would defeat server-side dedupe.
+		Result.ClientRef = FString::Printf(TEXT("ref-%d"), Index);
 		Queue.Add(Result);
 	}
 
@@ -56,6 +59,28 @@ bool FWSOfflineQueueCorruptEntryTest::RunTest(const FString&)
 		TestEqual(TEXT("first"), Restored[0].EventCode, TEXT("sprint-100m"));
 		TestEqual(TEXT("second"), Restored[1].EventCode, TEXT("long-jump"));
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSSubmitDispositionTest,
+	"WorldSports.Online.SubmitStatusDisposition",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+bool FWSSubmitDispositionTest::RunTest(const FString&)
+{
+	using E = EWSSubmitDisposition;
+	// The review found the original code dropping queued results on 401/5xx —
+	// statuses where the server never recorded anything. This table is the
+	// "never lose a result" guarantee in executable form.
+	TestTrue(TEXT("201 definitive"), UWSOnlineSubsystem::ClassifyResultStatus(201) == E::Definitive);
+	TestTrue(TEXT("401 keeps the result"), UWSOnlineSubsystem::ClassifyResultStatus(401) == E::AuthExpired);
+	TestTrue(TEXT("403 keeps the result"), UWSOnlineSubsystem::ClassifyResultStatus(403) == E::AuthExpired);
+	TestTrue(TEXT("429 retries later"), UWSOnlineSubsystem::ClassifyResultStatus(429) == E::Retryable);
+	TestTrue(TEXT("500 retries later"), UWSOnlineSubsystem::ClassifyResultStatus(500) == E::Retryable);
+	TestTrue(TEXT("502 retries later"), UWSOnlineSubsystem::ClassifyResultStatus(502) == E::Retryable);
+	TestTrue(TEXT("408 retries later"), UWSOnlineSubsystem::ClassifyResultStatus(408) == E::Retryable);
+	// Only statuses proving the submission itself can never succeed may drop.
+	TestTrue(TEXT("404 is fatal"), UWSOnlineSubsystem::ClassifyResultStatus(404) == E::Fatal);
+	TestTrue(TEXT("422 is fatal"), UWSOnlineSubsystem::ClassifyResultStatus(422) == E::Fatal);
 	return true;
 }
 

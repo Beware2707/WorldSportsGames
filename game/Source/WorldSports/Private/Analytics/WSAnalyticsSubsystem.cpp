@@ -54,7 +54,7 @@ bool UWSAnalyticsSubsystem::TickFlush(float)
 
 void UWSAnalyticsSubsystem::Flush()
 {
-	if (bFlushInFlight || Buffer.Num() == 0)
+	if (InFlight.Num() > 0 || Buffer.Num() == 0)
 	{
 		return;
 	}
@@ -65,12 +65,17 @@ void UWSAnalyticsSubsystem::Flush()
 		return;
 	}
 
+	// Splice the batch OUT of the buffer: while the request is in flight, cap
+	// trimming and new events can only ever touch Buffer, never this batch —
+	// so the completion handler's accounting cannot delete never-sent events.
 	const int32 BatchSize = FMath::Min(Buffer.Num(), MaxBatch);
+	InFlight.Append(Buffer.GetData(), BatchSize);
+	Buffer.RemoveAt(0, BatchSize);
+
 	TArray<TSharedPtr<FJsonValue>> Events;
-	Events.Reserve(BatchSize);
-	for (int32 Index = 0; Index < BatchSize; ++Index)
+	Events.Reserve(InFlight.Num());
+	for (const FPendingEvent& Event : InFlight)
 	{
-		const FPendingEvent& Event = Buffer[Index];
 		TSharedPtr<FJsonObject> EventJson = MakeShared<FJsonObject>();
 		EventJson->SetStringField(TEXT("name"), Event.Name);
 		TSharedPtr<FJsonObject> Props = MakeShared<FJsonObject>();
@@ -85,29 +90,37 @@ void UWSAnalyticsSubsystem::Flush()
 	TSharedPtr<FJsonObject> Body = MakeShared<FJsonObject>();
 	Body->SetArrayField(TEXT("events"), Events);
 
-	bFlushInFlight = true;
 	Online->Request(TEXT("POST"), AnalyticsPath, Body,
-		[this, BatchSize](const FWSHttpResult& Result)
+		[this](const FWSHttpResult& Result)
 		{
-			bFlushInFlight = false;
 			if (Result.bTransportOk)
 			{
 				// 202 or any definitive answer: these events are spent. A 422
 				// would mean a client bug; resending the same batch would just
 				// fail the same way.
-				Buffer.RemoveAt(0, FMath::Min(BatchSize, Buffer.Num()));
 				if (Result.Json.IsValid())
 				{
 					int32 Accepted = 0;
 					if (Result.Json->TryGetNumberField(TEXT("accepted"), Accepted) &&
-						Accepted < BatchSize)
+						Accepted < InFlight.Num())
 					{
 						UE_LOG(LogWorldSports, Warning,
 							TEXT("Analytics: %d/%d events rejected by the server"),
-							BatchSize - Accepted, BatchSize);
+							InFlight.Num() - Accepted, InFlight.Num());
 					}
 				}
+				InFlight.Empty();
 			}
-			// Transport failure: keep the buffer; the next tick retries.
+			else
+			{
+				// Transport failure: the batch goes back to the FRONT of the
+				// buffer (oldest first) for the next tick to retry.
+				Buffer.Insert(InFlight, 0);
+				InFlight.Empty();
+				if (Buffer.Num() > MaxBuffer)
+				{
+					Buffer.RemoveAt(0, Buffer.Num() - MaxBuffer);
+				}
+			}
 		});
 }

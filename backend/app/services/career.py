@@ -108,6 +108,7 @@ class Submission:
     wind: float | None = None
     rng_seed: str | None = None
     input_digest: str | None = None
+    client_ref: str | None = None
     errors: list[str] = field(default_factory=list)
 
 
@@ -314,9 +315,11 @@ async def record_result(
         wind=submission.wind,
         rng_seed=submission.rng_seed,
         input_digest=submission.input_digest,
+        client_ref=submission.client_ref,
         is_valid=is_valid,
         rejection_reason=reason,
         xp_awarded=xp,
+        was_pb=improved,
     )
     session.add(row)
 

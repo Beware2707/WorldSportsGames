@@ -1,67 +1,53 @@
 # Toolchain Setup
 
-Status of the software the Unreal implementation phases depend on, and the
-one step that needs your account. Checked/updated 2026-08-10.
+Status of the software the Unreal implementation phases depend on. Last
+updated 2026-08-15.
 
-## Installed automatically
+## Installed and verified
 
 | Software | Status | Notes |
 |---|---|---|
-| **Visual Studio Community 2022** | ✅ Installed — v17.14 | With C++ desktop + game-dev workloads, MSVC x64, Windows 11 SDK. Verified via `vswhere`. |
-| **Epic Games Launcher** | ✅ Installed | `EpicGamesLauncher.exe` present under `C:\Program Files\Epic Games\Launcher\`. Ready to sign in. |
+| **Visual Studio Community 2022** | ✅ v17.14 | C++ desktop + game-dev workloads, MSVC 14.44, Win 10 SDK 10.0.22621. Verified via `vswhere` and by compiling the project. |
+| **Epic Games Launcher** | ✅ | Used to install the engine. |
+| **Unreal Engine 5.8.1** | ✅ | `C:\Program Files\Epic Games\UE_5.8` (Build.version 5.8.1, CL 56057345). The `game/` project compiles against it and its automation tests run. |
+| **Android Studio** | ✅ | `C:\Program Files\Android\Android Studio` (winget, verified on disk — studio64.exe + bundled JBR). Needed for its JDK and as the SDK root convention. |
+| **Android cmdline-tools** | ✅ | Bootstrapped into `%LOCALAPPDATA%\Android\Sdk\cmdline-tools\latest` from Google's official repo (no Studio first-run needed). |
 
-Both were installed with `winget`. Note: winget's own exit code returned 0
-before the real installers finished — the actual completion was confirmed
-separately by watching the setup processes and querying `vswhere`, not by
-trusting that exit code.
+Reminder that keeps proving true: **winget exit 0 ≠ installed** — every row
+above was verified on the filesystem or by using the tool, not by trusting
+the package manager's exit code.
 
-## Needs YOUR account — I cannot do these
+## Blocked: Android SDK/NDK component install
 
-Unreal Engine is distributed through the Epic Games Launcher, which requires
-signing in to an Epic account. Entering credentials is yours to do, not mine.
+`Engine\Extras\Android\SetupAndroid.bat` (UE 5.8 pins: platform android-34,
+build-tools 35.0.1, NDK 27.2.12479018, CMake 3.22.1) stops at the **Android
+SDK License Agreement** — a legally binding agreement with Google that has to
+be accepted by a human, once:
 
-1. **Launch the Epic Games Launcher** and sign in (or create a free Epic
-   account). If Unreal will publish to consoles later, link accounts then;
-   for Android none of that is needed.
-2. **Unreal Engine tab → Library → "+" → Install.** Pick the latest stable
-   5.x. The brief asked for 5.8 — the launcher will show whether that version
-   is offered; if not, take the current stable release and we pin to it
-   (`MIGRATION_ANALYSIS.md` §0 flagged this).
-   - In the install options, **tick "Android"** under Target Platforms so the
-     mobile toolchain components come down with the engine.
-   - Budget ~50–70 GB for the engine and expect a long download.
-3. **Android SDK / NDK / JDK.** Unreal pins specific versions per engine
-   release, so install them *through Unreal* rather than guessing:
-   - Engine install dir → `Engine\Extras\Android\SetupAndroid.bat`.
-   - This pulls the exact SDK/NDK/JDK the chosen engine version wants. Doing it
-     any other way tends to produce version-mismatch packaging failures.
-   Alternatively install Android Studio first and point Unreal at its SDK, but
-   `SetupAndroid.bat` is the lower-friction path.
+```bash
+"$LOCALAPPDATA/Android/Sdk/cmdline-tools/latest/bin/sdkmanager.bat" --licenses
+```
 
-## Verify before Phase 1
+Answer `y` to the prompts, then rerun
+`"C:\Program Files\Epic Games\UE_5.8\Engine\Extras\Android\SetupAndroid.bat"`
+(it is idempotent and sets ANDROID_HOME / JAVA_HOME / NDK_ROOT user env vars
+itself).
 
-Once the above is done, these confirm the pipeline is real:
+## Verify before Android packaging
 
-- `vswhere -latest -property installationVersion` → returns a 17.x version ✅
-  (already true)
-- Epic Launcher lists an installed Unreal Engine.
-- In the engine: **Edit → Plugins → search "Android"** shows the platform
-  support present; **Platforms → Android** is not greyed out.
-- A throwaway blank C++ project **compiles** (proves MSVC is wired to Unreal)
-  and **packages a development APK** (proves the Android chain works end to
-  end). This is the real gate — `DEVELOPMENT_ROADMAP.md` Phase 1 exit
-  criterion — and it is worth doing with an empty project before any game
-  content exists, so a packaging failure is diagnosed in isolation.
+- `sdkmanager --list_installed` shows platform-tools, android-34,
+  build-tools 35.0.1, ndk 27.2.12479018, cmake 3.22.1.
+- `adb devices` sees the physical test phone (USB debugging on).
+- The `game/` project packages a Development APK:
+  `RunUAT BuildCookRun -project=game/WorldSports.uproject -platform=Android -cookflavor=ASTC -build -cook -stage -package`.
+- The APK installs and reaches the entry map on the device — the roadmap's
+  Phase 1 exit criterion, worth proving while the project is still nearly
+  empty so packaging failures are diagnosed in isolation.
 
-## Disk
+## Current state of Phase 1 Track B
 
-674 GB free at check time — comfortably enough for VS (~20 GB) + Unreal
-(~60 GB) + Android components (~15 GB) + project derived-data.
-
-## Meanwhile
-
-None of the backend track needed any of this, and it is done: the career
-athlete, validated results, leaderboards, cloud save, tournaments, friendships
-and analytics all ship and are tested against Postgres. When the engine is in
-place, `DEVELOPMENT_ROADMAP.md` Phase 1 Track B (the Unreal project skeleton
-authenticating against this backend) is the first step that consumes it.
+The Unreal project skeleton exists at `game/` (three modules, core
+subsystems, HTTP auth client) and **authenticates against the live backend**
+— the `LiveBackend.AuthRoundTrip` automation test registers/logs in and
+round-trips `/auth/me` against a running uvicorn. Win64 builds are proven;
+Android packaging is the piece gated on the license step above.

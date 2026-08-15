@@ -8,6 +8,7 @@
 #include "Interfaces/IHttpResponse.h"
 #include "JsonObjectConverter.h"
 #include "Kismet/GameplayStatics.h"
+#include "Misc/Guid.h"
 #include "Online/WSOfflineQueueSave.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
@@ -19,7 +20,6 @@ const TCHAR* LoginPath = TEXT("/api/v1/auth/login");
 const TCHAR* RegisterPath = TEXT("/api/v1/auth/register");
 const TCHAR* MePath = TEXT("/api/v1/auth/me");
 const TCHAR* ResultsPath = TEXT("/api/v1/career/results");
-const TCHAR* QueueSlotName = TEXT("WSOfflineQueue");
 
 FString JsonToString(const TSharedPtr<FJsonObject>& Json)
 {
@@ -45,12 +45,9 @@ TSharedPtr<FJsonObject> StringToJson(const FString& Body)
 void UWSOnlineSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
-	LoadQueueFromDisk();
-	if (OfflineQueue.Num() > 0)
-	{
-		UE_LOG(LogWorldSports, Log,
-			TEXT("Offline queue restored with %d pending result(s)"), OfflineQueue.Num());
-	}
+	// The offline queue is per-account and loads at sign-in (SwitchQueueUser);
+	// loading a global queue here is how one account's results would leak
+	// into another's session.
 }
 
 void UWSOnlineSubsystem::Deinitialize()
@@ -116,6 +113,7 @@ void UWSOnlineSubsystem::Login(const FString& Email, const FString& Password, FW
 					FJsonObjectConverter::JsonObjectToUStruct(
 						MeResult.Json.ToSharedRef(), &SignedInUser);
 					UE_LOG(LogWorldSports, Log, TEXT("Signed in as user %d"), SignedInUser.id);
+					SwitchQueueUser(SignedInUser.id);
 					OnAuthChanged.Broadcast(true);
 					if (Callback)
 					{
@@ -160,12 +158,16 @@ void UWSOnlineSubsystem::RegisterAccount(const FString& Email, const FString& Pa
 
 void UWSOnlineSubsystem::Logout()
 {
-	if (AccessToken.IsEmpty())
+	if (AccessToken.IsEmpty() && SignedInUser.id == 0)
 	{
 		return;
 	}
+	SaveQueueToDisk(); // the queue stays with its owner, on disk
 	AccessToken.Empty();
 	SignedInUser = FWSUserDto();
+	QueueUserId = 0;
+	OfflineQueue.Empty();
+	QueueCallbacks.Empty();
 	OnAuthChanged.Broadcast(false);
 }
 
@@ -186,12 +188,41 @@ void UWSOnlineSubsystem::SubmitResult(const FWSEventResult& Result, FWSSubmitCal
 		}
 		return;
 	}
+	if (QueueUserId == 0)
+	{
+		// No account has ever signed in on this session: there is no owner to
+		// queue under, and career results need an athlete anyway.
+		if (Callback)
+		{
+			Callback(EWSSubmitOutcome::Failed, FWSResultResponse(),
+				TEXT("Sign in before recording career results"));
+		}
+		return;
+	}
+
+	FWSEventResult Entry = Result;
+	if (Entry.ClientRef.IsEmpty())
+	{
+		Entry.ClientRef = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
+	}
 
 	// Persist FIRST. If the process dies mid-request the result survives.
-	OfflineQueue.Add(Result);
+	OfflineQueue.Add(MoveTemp(Entry));
 	QueueCallbacks.Add(MoveTemp(Callback));
 	SaveQueueToDisk();
 	FlushOfflineQueue();
+
+	// The "never silence" guarantee: if this entry is not the in-flight head
+	// (offline, expired session, or waiting behind older results), its caller
+	// hears Queued now instead of nothing.
+	const int32 Index = OfflineQueue.Num() - 1;
+	const bool bIsInFlightHead = bQueueFlushInFlight && Index == 0;
+	if (!bIsInFlightHead && QueueCallbacks.IsValidIndex(Index) && QueueCallbacks[Index])
+	{
+		FWSSubmitCallback Waiter = MoveTemp(QueueCallbacks[Index]);
+		QueueCallbacks[Index] = nullptr;
+		Waiter(EWSSubmitOutcome::Queued, FWSResultResponse(), FString());
+	}
 }
 
 void UWSOnlineSubsystem::FlushOfflineQueue()
@@ -202,6 +233,29 @@ void UWSOnlineSubsystem::FlushOfflineQueue()
 	}
 	bQueueFlushInFlight = true;
 	SubmitQueueHead();
+}
+
+EWSSubmitDisposition UWSOnlineSubsystem::ClassifyResultStatus(int32 StatusCode)
+{
+	if (StatusCode >= 200 && StatusCode < 300)
+	{
+		return EWSSubmitDisposition::Definitive;
+	}
+	if (StatusCode == 401 || StatusCode == 403)
+	{
+		// Rejected by the auth dependency BEFORE the submission was processed:
+		// nothing was recorded, so keeping the entry cannot double-submit.
+		return EWSSubmitDisposition::AuthExpired;
+	}
+	if (StatusCode == 408 || StatusCode == 429 || StatusCode >= 500)
+	{
+		// Transient. Resending is safe because replays carry client_ref and
+		// the server answers idempotently.
+		return EWSSubmitDisposition::Retryable;
+	}
+	// 400/404/409/422...: this submission can never succeed. Dropping loses
+	// nothing the server would ever have accepted.
+	return EWSSubmitDisposition::Fatal;
 }
 
 void UWSOnlineSubsystem::SubmitQueueHead()
@@ -226,35 +280,71 @@ void UWSOnlineSubsystem::SubmitQueueHead()
 		{
 			if (!Result.bTransportOk)
 			{
-				// Still offline: keep the head queued and stop; the next
-				// login/reconnect flush will retry it.
-				bQueueFlushInFlight = false;
-				if (QueueCallbacks.Num() > 0 && QueueCallbacks[0])
-				{
-					QueueCallbacks[0](EWSSubmitOutcome::Queued, FWSResultResponse(), Result.ErrorText);
-					QueueCallbacks[0] = nullptr; // report Queued only once
-				}
+				NotifyAllQueuedAndHalt(Result.ErrorText);
 				return;
 			}
 
-			FWSResultResponse Response;
-			if (Result.StatusCode == 201 && Result.Json.IsValid() &&
-				FJsonObjectConverter::JsonObjectToUStruct(Result.Json.ToSharedRef(), &Response))
+			switch (ClassifyResultStatus(Result.StatusCode))
 			{
-				FinishQueueHead(
-					Response.accepted ? EWSSubmitOutcome::Accepted : EWSSubmitOutcome::Rejected,
-					Response, Response.rejection_reason);
+			case EWSSubmitDisposition::Definitive:
+			{
+				FWSResultResponse Response;
+				if (Result.Json.IsValid() &&
+					FJsonObjectConverter::JsonObjectToUStruct(Result.Json.ToSharedRef(), &Response))
+				{
+					FinishQueueHead(
+						Response.accepted ? EWSSubmitOutcome::Accepted : EWSSubmitOutcome::Rejected,
+						Response, Response.rejection_reason);
+				}
+				else
+				{
+					// A 2xx we cannot parse is a client/contract bug. Keep the
+					// entry: client_ref makes the eventual replay idempotent,
+					// so keeping cannot double-submit but dropping loses it.
+					UE_LOG(LogWorldSports, Error,
+						TEXT("Unparseable %d from results endpoint; keeping entry queued"),
+						Result.StatusCode);
+					NotifyAllQueuedAndHalt(TEXT("Malformed server response"));
+				}
+				break;
 			}
-			else
-			{
-				// A definitive server answer (4xx/5xx). Dropping the entry is
-				// deliberate: the server SAW the submission; blind resubmission
-				// of e.g. a rate-limited result would double-submit.
+			case EWSSubmitDisposition::AuthExpired:
+				// The token died mid-session. Keep the queue (it belongs to
+				// SignedInUser, who is unchanged), drop the token, and tell
+				// the UI to re-authenticate.
+				UE_LOG(LogWorldSports, Warning,
+					TEXT("Session expired (%d); %d result(s) held for re-auth"),
+					Result.StatusCode, OfflineQueue.Num());
+				AccessToken.Empty();
+				OnAuthChanged.Broadcast(false);
+				NotifyAllQueuedAndHalt(TEXT("Session expired"));
+				break;
+			case EWSSubmitDisposition::Retryable:
+				NotifyAllQueuedAndHalt(
+					FString::Printf(TEXT("Server busy (%d)"), Result.StatusCode));
+				break;
+			case EWSSubmitDisposition::Fatal:
+			default:
 				FinishQueueHead(EWSSubmitOutcome::Failed, FWSResultResponse(),
 					FString::Printf(TEXT("Server answered %d: %s"), Result.StatusCode, *Result.Body));
+				break;
 			}
 		},
 		/*bAuthorized=*/true, /*AttemptsLeft=*/0);
+}
+
+void UWSOnlineSubsystem::NotifyAllQueuedAndHalt(const FString& Reason)
+{
+	bQueueFlushInFlight = false;
+	for (FWSSubmitCallback& Waiter : QueueCallbacks)
+	{
+		if (Waiter)
+		{
+			FWSSubmitCallback Once = MoveTemp(Waiter);
+			Waiter = nullptr;
+			Once(EWSSubmitOutcome::Queued, FWSResultResponse(), Reason);
+		}
+	}
 }
 
 void UWSOnlineSubsystem::FinishQueueHead(EWSSubmitOutcome Outcome,
@@ -318,29 +408,58 @@ TArray<FWSEventResult> UWSOnlineSubsystem::DeserializeQueue(const TArray<FString
 	return Out;
 }
 
+FString UWSOnlineSubsystem::QueueSlotForUser(int32 UserId) const
+{
+	return FString::Printf(TEXT("WSOfflineQueue_u%d"), UserId);
+}
+
 void UWSOnlineSubsystem::SaveQueueToDisk() const
 {
+	if (QueueUserId == 0)
+	{
+		return;
+	}
 	UWSOfflineQueueSave* Save = Cast<UWSOfflineQueueSave>(
 		UGameplayStatics::CreateSaveGameObject(UWSOfflineQueueSave::StaticClass()));
 	Save->SerializedResults = SerializeQueue(OfflineQueue);
-	if (!UGameplayStatics::SaveGameToSlot(Save, QueueSlotName, 0))
+	if (!UGameplayStatics::SaveGameToSlot(Save, QueueSlotForUser(QueueUserId), 0))
 	{
 		UE_LOG(LogWorldSports, Error, TEXT("Could not persist offline queue (%d entries)"),
 			OfflineQueue.Num());
 	}
 }
 
-void UWSOnlineSubsystem::LoadQueueFromDisk()
+void UWSOnlineSubsystem::SwitchQueueUser(int32 UserId)
 {
-	if (!UGameplayStatics::DoesSaveGameExist(QueueSlotName, 0))
+	if (UserId == QueueUserId)
 	{
 		return;
 	}
-	if (const UWSOfflineQueueSave* Save = Cast<UWSOfflineQueueSave>(
-			UGameplayStatics::LoadGameFromSlot(QueueSlotName, 0)))
+	if (QueueUserId != 0)
 	{
-		OfflineQueue = DeserializeQueue(Save->SerializedResults);
-		QueueCallbacks.Init(nullptr, OfflineQueue.Num());
+		SaveQueueToDisk(); // previous owner keeps their pending results
+		// Their waiters can no longer receive a server outcome this session.
+		NotifyAllQueuedAndHalt(TEXT("Account changed"));
+	}
+	QueueUserId = UserId;
+	OfflineQueue.Empty();
+	QueueCallbacks.Empty();
+
+	const FString Slot = QueueSlotForUser(UserId);
+	if (UGameplayStatics::DoesSaveGameExist(Slot, 0))
+	{
+		if (const UWSOfflineQueueSave* Save = Cast<UWSOfflineQueueSave>(
+				UGameplayStatics::LoadGameFromSlot(Slot, 0)))
+		{
+			OfflineQueue = DeserializeQueue(Save->SerializedResults);
+			QueueCallbacks.Init(nullptr, OfflineQueue.Num());
+			if (OfflineQueue.Num() > 0)
+			{
+				UE_LOG(LogWorldSports, Log,
+					TEXT("Offline queue for user %d restored with %d pending result(s)"),
+					UserId, OfflineQueue.Num());
+			}
+		}
 	}
 }
 
