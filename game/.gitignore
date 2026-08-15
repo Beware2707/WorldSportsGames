@@ -1,0 +1,21 @@
+# Unreal generated/derived — never committed
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+Platforms/
+.vs/
+.vsconfig
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+
+# Per-developer overrides (BaseUrl etc.) stay local
+Config/UserGame.ini
+Config/UserEngine.ini
+
+# Content is committed; imported source art is not
+Content/Developers/
