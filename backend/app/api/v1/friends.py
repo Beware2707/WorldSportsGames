@@ -93,37 +93,63 @@ async def send_request(
         )
 
     # One row per pair regardless of direction.
-    existing = (
+    existing = await _pair_row(session, user.id, code_row.user_id)
+    if existing is not None:
+        return await _resolve_existing(session, existing, user.id)
+
+    friendship = Friendship(
+        requester_id=user.id,
+        addressee_id=code_row.user_id,
+        pair_key=_pair_key(user.id, code_row.user_id),
+    )
+    session.add(friendship)
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Two reverse requests raced: the other side's row committed between
+        # our pre-check and this insert. The undirected pair_key constraint
+        # rejected the duplicate — treat it exactly like finding the row up
+        # front (their pending request + our request back = acceptance).
+        await session.rollback()
+        existing = await _pair_row(session, user.id, code_row.user_id)
+        if existing is None:  # pragma: no cover - constraint fired, row exists
+            raise
+        return await _resolve_existing(session, existing, user.id)
+    return await _friend_out(session, friendship, user.id)
+
+
+def _pair_key(a: int, b: int) -> str:
+    return f"{min(a, b)}:{max(a, b)}"
+
+
+async def _pair_row(
+    session: AsyncSession, user_id: int, other_id: int
+) -> Friendship | None:
+    return (
         await session.execute(
             select(Friendship).where(
-                or_(
-                    (Friendship.requester_id == user.id)
-                    & (Friendship.addressee_id == code_row.user_id),
-                    (Friendship.requester_id == code_row.user_id)
-                    & (Friendship.addressee_id == user.id),
-                )
+                Friendship.pair_key == _pair_key(user_id, other_id)
             )
         )
     ).scalar_one_or_none()
-    if existing is not None:
-        if existing.status == "accepted":
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail="Already friends"
-            )
-        if existing.requester_id == user.id:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail="Request already sent"
-            )
-        # They asked us first — sending a request back is an acceptance.
-        existing.status = "accepted"
-        existing.responded_at = datetime.now(UTC)
-        await session.commit()
-        return await _friend_out(session, existing, user.id)
 
-    friendship = Friendship(requester_id=user.id, addressee_id=code_row.user_id)
-    session.add(friendship)
+
+async def _resolve_existing(
+    session: AsyncSession, existing: Friendship, viewer_id: int
+):
+    if existing.status == "accepted":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Already friends"
+        )
+    if existing.requester_id == viewer_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Request already sent"
+        )
+    # They asked us first — sending a request back is an acceptance.
+    existing.status = "accepted"
+    existing.responded_at = datetime.now(UTC)
     await session.commit()
-    return await _friend_out(session, friendship, user.id)
+    return await _friend_out(session, existing, viewer_id)
 
 
 @router.get("", response_model=list[FriendOut])

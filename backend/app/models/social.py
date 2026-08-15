@@ -60,17 +60,24 @@ class Friendship(Base):
     """A friend request and, once accepted, a friendship.
 
     Stored once per pair (requester → addressee); acceptance makes it mutual.
+
+    ``pair_key`` is the order-independent identity of the pair
+    (``"min_id:max_id"``). The directional (requester, addressee) constraint
+    cannot stop two *reverse* requests racing (A→B and B→A committed
+    simultaneously each satisfy it), which would leave two rows for one pair —
+    the undirected key is what the database can actually enforce.
     """
 
     __tablename__ = "friendship"
     __table_args__ = (
-        UniqueConstraint("requester_id", "addressee_id", name="uq_friendship_pair"),
+        UniqueConstraint("pair_key", name="uq_friendship_pair_key"),
         Index("ix_friendship_addressee", "addressee_id", "status"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     requester_id: Mapped[int] = mapped_column(ForeignKey("app_user.id"), index=True)
     addressee_id: Mapped[int] = mapped_column(ForeignKey("app_user.id"))
+    pair_key: Mapped[str] = mapped_column(String(32))
     status: Mapped[str] = mapped_column(String(12), default="pending")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

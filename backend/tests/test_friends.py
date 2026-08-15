@@ -206,3 +206,31 @@ async def test_career_friends_leaderboard(client, alice, bob):
         params={"event": "sprint-100m", "scope": "friends"},
     )
     assert r.status_code == 401, "friends scope requires sign-in"
+
+
+async def test_reverse_pair_is_blocked_by_the_database(client, alice, bob, db_sessionmaker):
+    """Two reverse requests racing must be stopped by the DB, not the pre-check.
+
+    The directional (requester, addressee) constraint accepted A->B and B->A
+    as different rows, so a true race left two rows for one pair. The
+    undirected pair_key constraint is what the database can actually enforce
+    — simulated here by inserting the reverse row directly, as a race would.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    from app.models import Friendship
+
+    alice_id = (await client.get("/api/v1/auth/me", headers=alice)).json()["id"]
+    bob_id = (await client.get("/api/v1/auth/me", headers=bob)).json()["id"]
+    key = f"{min(alice_id, bob_id)}:{max(alice_id, bob_id)}"
+
+    async with db_sessionmaker() as session:
+        session.add(Friendship(
+            requester_id=alice_id, addressee_id=bob_id, pair_key=key))
+        await session.commit()
+
+    async with db_sessionmaker() as session:
+        session.add(Friendship(
+            requester_id=bob_id, addressee_id=alice_id, pair_key=key))
+        with pytest.raises(IntegrityError):
+            await session.commit()
