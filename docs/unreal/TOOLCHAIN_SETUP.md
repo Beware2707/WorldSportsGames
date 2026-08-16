@@ -12,26 +12,15 @@ updated 2026-08-15.
 | **Unreal Engine 5.8.1** | ✅ | `C:\Program Files\Epic Games\UE_5.8` (Build.version 5.8.1, CL 56057345). The `game/` project compiles against it and its automation tests run. |
 | **Android Studio** | ✅ | `C:\Program Files\Android\Android Studio` (winget, verified on disk — studio64.exe + bundled JBR). Needed for its JDK and as the SDK root convention. |
 | **Android cmdline-tools** | ✅ | Bootstrapped into `%LOCALAPPDATA%\Android\Sdk\cmdline-tools\latest` from Google's official repo (no Studio first-run needed). |
+| **Android SDK / NDK** | ✅ | Licenses accepted (user-approved 2026-08-16); `SetupAndroid.bat` installed platform android-34, build-tools 35.0.1, NDK 27.2.12479018, CMake 3.22.1, platform-tools, and set ANDROID_HOME / JAVA_HOME / NDKROOT user env vars. Verified on disk. |
 
 Reminder that keeps proving true: **winget exit 0 ≠ installed** — every row
 above was verified on the filesystem or by using the tool, not by trusting
 the package manager's exit code.
 
-## Blocked: Android SDK/NDK component install
-
-`Engine\Extras\Android\SetupAndroid.bat` (UE 5.8 pins: platform android-34,
-build-tools 35.0.1, NDK 27.2.12479018, CMake 3.22.1) stops at the **Android
-SDK License Agreement** — a legally binding agreement with Google that has to
-be accepted by a human, once:
-
-```bash
-"$LOCALAPPDATA/Android/Sdk/cmdline-tools/latest/bin/sdkmanager.bat" --licenses
-```
-
-Answer `y` to the prompts, then rerun
-`"C:\Program Files\Epic Games\UE_5.8\Engine\Extras\Android\SetupAndroid.bat"`
-(it is idempotent and sets ANDROID_HOME / JAVA_HOME / NDK_ROOT user env vars
-itself).
+Windows piping gotcha for posterity: `'y' | sdkmanager.bat --licenses` from
+PowerShell does NOT reach the underlying Java process; use cmd's file
+redirection (`cmd /c "sdkmanager.bat --licenses < yes.txt"`).
 
 ## Verify before Android packaging
 
