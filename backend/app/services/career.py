@@ -107,6 +107,46 @@ EVENTS: dict[str, CareerEvent] = {
         min_split_seconds=4.0,
         distance_m=400.0,
     ),
+    # --- Middle distance -------------------------------------------------
+    # A different KIND of event, not a longer sprint. There are no blocks and
+    # so no reaction to measure (requires_reaction=False), and no wind is
+    # recorded — World Athletics does not rank marks beyond 200m by wind, so
+    # a client that sent one would be inventing a measurement the sport does
+    # not take. What decides these races is pace judgement against a finite
+    # energy budget, which is why RECOVERY and STAMINA govern them and
+    # reaction does not appear at all.
+    "middle-800m": CareerEvent(
+        code="middle-800m",
+        name="800m",
+        value_kind="time",
+        lower_is_better=True,
+        min_plausible=100.0,         # the world record is 1:40.91
+        max_plausible=900.0,
+        governing_attributes=("max_speed", "stride_efficiency", "stamina",
+                              "recovery", "technique"),
+        ceiling_at_zero=150.0,       # 2:30 for a complete novice
+        ceiling_at_hundred=101.0,    # 1:41, just off the world record
+        splits_expected=2,           # one per lap
+        requires_reaction=False,
+        min_split_seconds=45.0,      # no human splits a lap faster mid-800
+        distance_m=800.0,
+    ),
+    "middle-1500m": CareerEvent(
+        code="middle-1500m",
+        name="1500m",
+        value_kind="time",
+        lower_is_better=True,
+        min_plausible=205.0,         # the world record is 3:26.00
+        max_plausible=1800.0,
+        governing_attributes=("max_speed", "stride_efficiency", "stamina",
+                              "recovery", "technique"),
+        ceiling_at_zero=310.0,       # 5:10
+        ceiling_at_hundred=206.0,    # 3:26
+        splits_expected=5,           # 300m segments
+        requires_reaction=False,
+        min_split_seconds=33.0,
+        distance_m=1500.0,
+    ),
 }
 
 # Result submissions per athlete per minute. Nobody legitimately finishes
