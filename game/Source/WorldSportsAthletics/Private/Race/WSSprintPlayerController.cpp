@@ -52,18 +52,11 @@ AWSSprintGameMode* AWSSprintPlayerController::Sprint() const
 
 void AWSSprintPlayerController::HandlePressed()
 {
-	AWSSprintGameMode* GameMode = Sprint();
-	if (!GameMode)
+	// The controller reports raw input; the race rules decide whether this
+	// press is a block hold or a rhythm tap.
+	if (AWSSprintGameMode* GameMode = Sprint())
 	{
-		return;
-	}
-	if (GameMode->GetPhase() == EWSEventPhase::Ready)
-	{
-		GameMode->PlayerHold();
-	}
-	else
-	{
-		GameMode->PlayerTap();
+		GameMode->PlayerPress();
 	}
 }
 
@@ -71,27 +64,28 @@ void AWSSprintPlayerController::HandleReleased()
 {
 	if (AWSSprintGameMode* GameMode = Sprint())
 	{
-		// Releasing only matters out of the blocks; mid-race it is just the
-		// end of a tap.
-		if (GameMode->GetPhase() == EWSEventPhase::Ready ||
-			!GameMode->GetPlayerRunner() ||
-			!GameMode->GetPlayerRunner()->GetState().bReleased)
-		{
-			GameMode->PlayerRelease();
-		}
+		GameMode->PlayerRelease();
 	}
 }
 
-void AWSSprintPlayerController::HandleTouchPressed(ETouchIndex::Type, FVector Location)
+void AWSSprintPlayerController::HandleTouchPressed(ETouchIndex::Type Finger, FVector Location)
 {
+	// Only the first finger down drives the race. A second finger landing
+	// (or lifting) must not be able to release the blocks — that turned an
+	// ordinary two-thumb grip into a false start.
+	if (HoldFinger != ETouchIndex::CursorPointerIndex)
+	{
+		return;
+	}
+	HoldFinger = Finger;
 	TouchStart = Location;
 	bSwipeConsumed = false;
 	HandlePressed();
 }
 
-void AWSSprintPlayerController::HandleSwipeCheck(ETouchIndex::Type, FVector Location)
+void AWSSprintPlayerController::HandleSwipeCheck(ETouchIndex::Type Finger, FVector Location)
 {
-	if (bSwipeConsumed)
+	if (bSwipeConsumed || Finger != HoldFinger)
 	{
 		return;
 	}
@@ -107,7 +101,12 @@ void AWSSprintPlayerController::HandleSwipeCheck(ETouchIndex::Type, FVector Loca
 	}
 }
 
-void AWSSprintPlayerController::HandleTouchReleased(ETouchIndex::Type, FVector)
+void AWSSprintPlayerController::HandleTouchReleased(ETouchIndex::Type Finger, FVector)
 {
+	if (Finger != HoldFinger)
+	{
+		return;
+	}
+	HoldFinger = ETouchIndex::CursorPointerIndex;
 	HandleReleased();
 }

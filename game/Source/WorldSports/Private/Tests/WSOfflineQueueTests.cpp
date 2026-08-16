@@ -78,9 +78,14 @@ bool FWSSubmitDispositionTest::RunTest(const FString&)
 	TestTrue(TEXT("500 retries later"), UWSOnlineSubsystem::ClassifyResultStatus(500) == E::Retryable);
 	TestTrue(TEXT("502 retries later"), UWSOnlineSubsystem::ClassifyResultStatus(502) == E::Retryable);
 	TestTrue(TEXT("408 retries later"), UWSOnlineSubsystem::ClassifyResultStatus(408) == E::Retryable);
+	// 404 is the career endpoints' "no athlete yet" answer. Treating it as
+	// fatal silently discarded every race a new player ever ran, so it now
+	// creates the athlete and retries instead.
+	TestTrue(TEXT("404 asks for an athlete"),
+		UWSOnlineSubsystem::ClassifyResultStatus(404) == E::NeedsAthlete);
 	// Only statuses proving the submission itself can never succeed may drop.
-	TestTrue(TEXT("404 is fatal"), UWSOnlineSubsystem::ClassifyResultStatus(404) == E::Fatal);
 	TestTrue(TEXT("422 is fatal"), UWSOnlineSubsystem::ClassifyResultStatus(422) == E::Fatal);
+	TestTrue(TEXT("400 is fatal"), UWSOnlineSubsystem::ClassifyResultStatus(400) == E::Fatal);
 	return true;
 }
 

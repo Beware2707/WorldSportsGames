@@ -299,7 +299,7 @@ FString FWSSprintSimulation::DigestTrace(const TArray<FWSSprintInputEvent>& Trac
 }
 
 TArray<FWSSprintInputEvent> FWSSprintSimulation::GenerateAITrace(
-	const FWSSprintAttributes& Attributes, uint32 Seed,
+	const FWSSprintAttributes& Attributes, uint32 RaceSeed, uint32 InputSeed,
 	double ReactionMeanMs, double ReactionSpreadMs, double Consistency)
 {
 	// The AI plays the game: it produces INPUT — a reaction and a tap
@@ -311,7 +311,7 @@ TArray<FWSSprintInputEvent> FWSSprintSimulation::GenerateAITrace(
 	// distance — exactly what a human tracking the HUD band does. An
 	// open-loop time schedule would silently punish slow athletes for
 	// being behind the curve, which is an artifact, not a skill.
-	FRandomStream Stream(static_cast<int32>(Seed ^ 0x9E3779B9u));
+	FRandomStream Stream(static_cast<int32>(InputSeed ^ 0x9E3779B9u));
 	auto Gaussish = [&Stream]() // sum of 3 uniforms ~ bell curve in [-1.5, 1.5]
 	{
 		return (Stream.FRand() + Stream.FRand() + Stream.FRand()) - 1.5;
@@ -335,7 +335,8 @@ TArray<FWSSprintInputEvent> FWSSprintSimulation::GenerateAITrace(
 	const double BiasPhase = Stream.FRand() * 2.0 * PI;
 	const double BiasRateHz = 0.18 + 0.14 * Stream.FRand();
 
-	FWSSprintSimulation Shadow(Attributes, Seed);
+	// Plan against the ACTUAL race conditions, not a different draw.
+	FWSSprintSimulation Shadow(Attributes, RaceSeed);
 	for (const FWSSprintInputEvent& Event : Trace)
 	{
 		Shadow.AddInput(Event);

@@ -27,7 +27,7 @@ double ServerCeiling(double MeanAttr)
 TArray<FWSSprintInputEvent> BestRealisticTrace(const FWSSprintAttributes& Attributes, uint32 Seed)
 {
 	// Consistency 1.0 = a flawless human rhythm, the ceiling of play.
-	return FWSSprintSimulation::GenerateAITrace(Attributes, Seed, 130.0, 0.0, 1.0);
+	return FWSSprintSimulation::GenerateAITrace(Attributes, Seed, Seed, 130.0, 0.0, 1.0);
 }
 }
 
@@ -41,7 +41,7 @@ bool FWSSprintDeterminismTest::RunTest(const FString&)
 	// this being exact, not approximate.
 	const FWSSprintAttributes Attributes = UniformAttributes(55.0f);
 	const TArray<FWSSprintInputEvent> Trace =
-		FWSSprintSimulation::GenerateAITrace(Attributes, 42u, 180.0, 25.0, 0.7);
+		FWSSprintSimulation::GenerateAITrace(Attributes, 42u, 42u, 180.0, 25.0, 0.7);
 
 	const FWSSprintOutcome First = FWSSprintSimulation::RunTrace(Attributes, 42u, Trace);
 	const FWSSprintOutcome Second = FWSSprintSimulation::RunTrace(Attributes, 42u, Trace);
@@ -103,9 +103,9 @@ bool FWSSprintSkillDecidesTest::RunTest(const FString&)
 	// meaningful margin. "Attributes raise the ceiling; execution decides."
 	const FWSSprintAttributes Attributes = UniformAttributes(50.0f);
 	const FWSSprintOutcome Sharp = FWSSprintSimulation::RunTrace(Attributes, 77u,
-		FWSSprintSimulation::GenerateAITrace(Attributes, 77u, 150.0, 0.0, 0.95));
+		FWSSprintSimulation::GenerateAITrace(Attributes, 77u, 77u, 150.0, 0.0, 0.95));
 	const FWSSprintOutcome Sloppy = FWSSprintSimulation::RunTrace(Attributes, 77u,
-		FWSSprintSimulation::GenerateAITrace(Attributes, 77u, 150.0, 0.0, 0.10));
+		FWSSprintSimulation::GenerateAITrace(Attributes, 77u, 77u, 150.0, 0.0, 0.10));
 
 	TestTrue(TEXT("both finish"), Sharp.bFinished && Sloppy.bFinished);
 	TestTrue(FString::Printf(TEXT("sharp %.3f beats sloppy %.3f by >= 0.35s"),
@@ -116,10 +116,10 @@ bool FWSSprintSkillDecidesTest::RunTest(const FString&)
 	// played well — the anti-pay-to-win constraint, executable.
 	const FWSSprintOutcome EliteBadly = FWSSprintSimulation::RunTrace(
 		UniformAttributes(85.0f), 77u,
-		FWSSprintSimulation::GenerateAITrace(UniformAttributes(85.0f), 77u, 150.0, 0.0, 0.05));
+		FWSSprintSimulation::GenerateAITrace(UniformAttributes(85.0f), 77u, 77u, 150.0, 0.0, 0.05));
 	const FWSSprintOutcome RegionalWell = FWSSprintSimulation::RunTrace(
 		UniformAttributes(45.0f), 77u,
-		FWSSprintSimulation::GenerateAITrace(UniformAttributes(45.0f), 77u, 150.0, 0.0, 0.98));
+		FWSSprintSimulation::GenerateAITrace(UniformAttributes(45.0f), 77u, 77u, 150.0, 0.0, 0.98));
 	TestTrue(FString::Printf(
 			TEXT("regional played well (%.3f) beats elite played badly (%.3f)"),
 			RegionalWell.TimeSeconds, EliteBadly.TimeSeconds),
@@ -175,7 +175,7 @@ bool FWSSprintSplitCoherenceTest::RunTest(const FString&)
 	{
 		const FWSSprintAttributes Attributes = UniformAttributes(60.0f);
 		const FWSSprintOutcome Outcome = FWSSprintSimulation::RunTrace(Attributes, Seed,
-			FWSSprintSimulation::GenerateAITrace(Attributes, Seed, 170.0, 30.0, 0.8));
+			FWSSprintSimulation::GenerateAITrace(Attributes, Seed, Seed, 170.0, 30.0, 0.8));
 		TestTrue(TEXT("finished"), Outcome.bFinished);
 		TestEqual(TEXT("ten splits"), Outcome.Splits.Num(), 10);
 
@@ -221,7 +221,8 @@ bool FWSSprintDifficultyLadderTest::RunTest(const FString&)
 			const FWSSprintAttributes Attributes = Level.MakeAttributes();
 			const FWSSprintOutcome Outcome = FWSSprintSimulation::RunTrace(
 				Attributes, Seed,
-				FWSSprintSimulation::GenerateAITrace(Attributes, Seed,
+				FWSSprintSimulation::GenerateAITrace(
+				Attributes, Seed, Seed,
 					Level.ReactionMeanMs, Level.ReactionSpreadMs, Level.Consistency));
 			if (Outcome.bFinished)
 			{
@@ -249,7 +250,7 @@ bool FWSSprintDigestAndIdleTest::RunTest(const FString&)
 {
 	const FWSSprintAttributes Attributes = UniformAttributes(50.0f);
 	const TArray<FWSSprintInputEvent> Trace =
-		FWSSprintSimulation::GenerateAITrace(Attributes, 9u, 180.0, 20.0, 0.7);
+		FWSSprintSimulation::GenerateAITrace(Attributes, 9u, 9u, 180.0, 20.0, 0.7);
 
 	const FString DigestA = FWSSprintSimulation::DigestTrace(Trace);
 	const FString DigestB = FWSSprintSimulation::DigestTrace(Trace);

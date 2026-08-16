@@ -131,9 +131,16 @@ public:
 	/** Deterministic digest of an input trace (audit breadcrumb). */
 	static FString DigestTrace(const TArray<FWSSprintInputEvent>& Trace);
 
-	/** AI: build a trace from a skill profile. Same simulation runs it. */
+	/**
+	 * AI: build a trace from a skill profile. The same simulation runs it.
+	 *
+	 * RaceSeed must be the seed of the race the trace will be REPLAYED in —
+	 * the planning pass reads wind and band drift from it, and planning
+	 * against different conditions than the athlete races in silently
+	 * degrades their rhythm. InputSeed varies execution only.
+	 */
 	static TArray<FWSSprintInputEvent> GenerateAITrace(
-		const FWSSprintAttributes& Attributes, uint32 Seed,
+		const FWSSprintAttributes& Attributes, uint32 RaceSeed, uint32 InputSeed,
 		double ReactionMeanMs, double ReactionSpreadMs, double Consistency);
 
 	const FWSSprintState& GetState() const { return State; }

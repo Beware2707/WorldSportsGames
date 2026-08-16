@@ -1,6 +1,7 @@
 #include "Race/WSSprintTrack.h"
 
 #include "Components/DirectionalLightComponent.h"
+#include "Components/SkyAtmosphereComponent.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
@@ -13,6 +14,9 @@ AWSSprintTrack::AWSSprintTrack()
 
 	USceneComponent* Root = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
 	SetRootComponent(Root);
+	// Static children cannot attach to a movable root — without this the
+	// engine silently drops the blocks and the far distance markers.
+	Root->SetMobility(EComponentMobility::Static);
 
 	// Track surface, extended past the line so the run-out is not a void.
 	const float SurfaceHalfX = (TrackLengthCm + ApronCm) * 0.5f;
@@ -71,13 +75,21 @@ AWSSprintTrack::AWSSprintTrack()
 	SunLight->SetupAttachment(Root);
 	SunLight->SetRelativeRotation(FRotator(-48.0f, 35.0f, 0.0f));
 	SunLight->SetIntensity(4.0f);
-	SunLight->SetMobility(EComponentMobility::Stationary);
+	SunLight->SetMobility(EComponentMobility::Movable);
+	// Marks this light as the atmosphere's sun so the sky is lit by it.
+	SunLight->SetAtmosphereSunLight(true);
+
+	// Without an atmosphere the horizon is pure black, which reads as a bug
+	// rather than as a stadium.
+	Atmosphere = CreateDefaultSubobject<USkyAtmosphereComponent>(TEXT("SkyAtmosphere"));
+	Atmosphere->SetupAttachment(Root);
+	Atmosphere->SetMobility(EComponentMobility::Movable);
 
 	SkyLight = CreateDefaultSubobject<USkyLightComponent>(TEXT("SkyLight"));
 	SkyLight->SetupAttachment(Root);
-	SkyLight->SetIntensity(1.1f);
-	SkyLight->SetMobility(EComponentMobility::Stationary);
-	SkyLight->SourceType = ESkyLightSourceType::SLS_SpecifiedCubemap;
+	SkyLight->SetIntensity(1.0f);
+	SkyLight->SetMobility(EComponentMobility::Movable);
+	SkyLight->bRealTimeCapture = true; // captures the atmosphere above
 	SkyLight->bLowerHemisphereIsBlack = false;
 }
 

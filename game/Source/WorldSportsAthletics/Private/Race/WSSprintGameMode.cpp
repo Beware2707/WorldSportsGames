@@ -9,13 +9,16 @@
 #include "Race/WSSprintHud.h"
 #include "Race/WSSprintPlayerController.h"
 #include "Race/WSSprintRunner.h"
+#include "Math/RandomStream.h"
 #include "Race/WSSprintTrack.h"
 #include "Simulation/WSSprintDifficulty.h"
 #include "Sports/Results/WSEventResult.h"
 
 namespace
 {
-constexpr double SetPhaseSeconds = 3.0;   // clock starts here, negative
+// The starter holds the field for a variable pause before the gun.
+constexpr double MinSetSeconds = 2.2;
+constexpr double MaxSetSeconds = 4.6;
 constexpr float ResultDwellSeconds = 1.2f;
 const TCHAR* SprintEventCode = TEXT("sprint-100m");
 
@@ -81,9 +84,18 @@ void AWSSprintGameMode::StartRace()
 	bHolding = false;
 	ResultDwell = 0.0f;
 
+	++RaceGeneration;
+
 	// One seed per race, shared by every runner: same wind, same drift.
 	RaceSeed = static_cast<uint32>(FMath::Rand()) ^ 0x5F3759DFu;
-	RaceClock = -SetPhaseSeconds;
+
+	// The starter's pause varies, as it does on a real track. A fixed delay
+	// would let a constant-offset macro score a perfect reaction every race,
+	// which would make the start mechanic decorative.
+	FRandomStream StartStream(static_cast<int32>(RaceSeed ^ 0x7F4A7C15u));
+	SetDurationSeconds = MinSetSeconds +
+		StartStream.FRand() * (MaxSetSeconds - MinSetSeconds);
+	RaceClock = -SetDurationSeconds;
 
 	SpawnField();
 	bRaceRunning = true;
@@ -127,7 +139,7 @@ void AWSSprintGameMode::SpawnField()
 				OpponentNames[OpponentIndex % UE_ARRAY_COUNT(OpponentNames)],
 				/*bIsPlayer=*/false);
 			Runner->PushTrace(FWSSprintSimulation::GenerateAITrace(
-				Attributes, InputSeed, Level.ReactionMeanMs,
+				Attributes, RaceSeed, InputSeed, Level.ReactionMeanMs,
 				Level.ReactionSpreadMs, Level.Consistency));
 			++OpponentIndex;
 		}
@@ -275,6 +287,21 @@ void AWSSprintGameMode::UpdateCamera(float DeltaSeconds)
 void AWSSprintGameMode::BuildStandings()
 {
 	Standings.Reset();
+
+	// A false start recalls the race: nobody else has a result, and listing
+	// seven athletes still standing in their blocks as a finished field
+	// would be a fabricated classification.
+	if (PlayerRunner && PlayerRunner->HasFalseStarted())
+	{
+		FWSRaceStanding Dq;
+		Dq.Position = 0;
+		Dq.Name = PlayerRunner->GetDisplayName();
+		Dq.bIsPlayer = true;
+		Dq.bFalseStart = true;
+		Standings.Add(Dq);
+		return;
+	}
+
 	TArray<AWSSprintRunner*> Sorted;
 	for (AWSSprintRunner* Runner : Runners)
 	{
@@ -357,57 +384,93 @@ void AWSSprintGameMode::SubmitPlayerResult()
 	SetPhase(EWSEventPhase::Submit);
 
 	TWeakObjectPtr<AWSSprintGameMode> WeakThis(this);
+	const uint32 Generation = RaceGeneration;
 	Online->SubmitResult(Result,
-		[WeakThis](EWSSubmitOutcome SubmitOutcome, const FWSResultResponse& Response,
+		[WeakThis, Generation](EWSSubmitOutcome SubmitOutcome, const FWSResultResponse& Response,
 			const FString& Error)
 		{
-			AWSSprintGameMode* Self = WeakThis.Get();
-			if (!Self)
+			if (AWSSprintGameMode* Self = WeakThis.Get())
 			{
-				return;
+				Self->HandleSubmitOutcome(Generation, SubmitOutcome, Response, Error);
 			}
-			Self->bAwaitingServer = false;
-			switch (SubmitOutcome)
-			{
-			case EWSSubmitOutcome::Accepted:
-				Self->ServerVerdict = FString::Printf(
-					TEXT("Verified · +%d XP%s"), Response.xp_awarded,
-					Response.is_personal_best ? TEXT(" · Personal best!") : TEXT(""));
-				break;
-			case EWSSubmitOutcome::Rejected:
-				// The server's exact reason, verbatim: a rejected run must
-				// never look like a network problem.
-				Self->ServerVerdict = FString::Printf(
-					TEXT("Not counted: %s"), *Response.rejection_reason);
-				break;
-			case EWSSubmitOutcome::Queued:
-				Self->ServerVerdict = TEXT("Saved — will submit when you're back online");
-				break;
-			default:
-				Self->ServerVerdict = FString::Printf(TEXT("Submission failed: %s"), *Error);
-				break;
-			}
-			Self->SetPhase(EWSEventPhase::Reward);
 		});
+}
+
+void AWSSprintGameMode::HandleSubmitOutcome(uint32 Generation, EWSSubmitOutcome Outcome,
+	const FWSResultResponse& Response, const FString& Error)
+{
+	if (RaceGeneration != Generation)
+	{
+		// The player already started another race. Applying this answer
+		// would stamp the previous run's verdict on the new one and shove
+		// it straight into Reward, leaving it unplayable. Nothing is lost:
+		// the online subsystem still broadcasts the result.
+		return;
+	}
+	bAwaitingServer = false;
+	switch (Outcome)
+	{
+	case EWSSubmitOutcome::Accepted:
+		ServerVerdict = FString::Printf(
+			TEXT("Verified · +%d XP%s"), Response.xp_awarded,
+			Response.is_personal_best ? TEXT(" · Personal best!") : TEXT(""));
+		break;
+	case EWSSubmitOutcome::Rejected:
+		// The server's exact reason, verbatim: a rejected run must never
+		// look like a network problem.
+		ServerVerdict = FString::Printf(
+			TEXT("Not counted: %s"), *Response.rejection_reason);
+		break;
+	case EWSSubmitOutcome::Queued:
+		ServerVerdict = TEXT("Saved — will submit when you're back online");
+		break;
+	default:
+		ServerVerdict = FString::Printf(TEXT("Submission failed: %s"), *Error);
+		break;
+	}
+	SetPhase(EWSEventPhase::Reward);
+}
+
+void AWSSprintGameMode::DebugDeliverStaleSubmit()
+{
+	FWSResultResponse Response;
+	Response.accepted = true;
+	Response.xp_awarded = 999;
+	HandleSubmitOutcome(RaceGeneration - 1, EWSSubmitOutcome::Accepted, Response, FString());
 }
 
 // -- Player input -------------------------------------------------------
 
-void AWSSprintGameMode::PlayerHold()
+void AWSSprintGameMode::PlayerPress()
 {
-	if (bHolding || !PlayerRunner || GetPhase() != EWSEventPhase::Ready)
+	if (!PlayerRunner || !bRaceRunning)
 	{
 		return;
 	}
-	bHolding = true;
-	const FWSSprintInputEvent Event{RaceClock, EWSSprintInputType::HoldStart};
+	// Still in the blocks — whatever the phase — so this press is the hold.
+	// Gating this on the Ready phase used to strand any player whose first
+	// touch landed after the gun: they could never release.
+	if (!PlayerRunner->GetState().bReleased)
+	{
+		if (bHolding)
+		{
+			return;
+		}
+		bHolding = true;
+		const FWSSprintInputEvent Event{RaceClock, EWSSprintInputType::HoldStart};
+		PlayerTrace.Add(Event);
+		PlayerRunner->PushInput(Event);
+		return;
+	}
+
+	const FWSSprintInputEvent Event{RaceClock, EWSSprintInputType::Tap};
 	PlayerTrace.Add(Event);
 	PlayerRunner->PushInput(Event);
 }
 
 void AWSSprintGameMode::PlayerRelease()
 {
-	if (!bHolding || !PlayerRunner)
+	if (!bHolding || !PlayerRunner || PlayerRunner->GetState().bReleased)
 	{
 		return;
 	}
@@ -415,17 +478,6 @@ void AWSSprintGameMode::PlayerRelease()
 	// Release before the gun (negative clock) is a false start, and the
 	// simulation — not the UI — is what decides that.
 	const FWSSprintInputEvent Event{RaceClock, EWSSprintInputType::Release};
-	PlayerTrace.Add(Event);
-	PlayerRunner->PushInput(Event);
-}
-
-void AWSSprintGameMode::PlayerTap()
-{
-	if (!PlayerRunner || !bRaceRunning)
-	{
-		return;
-	}
-	const FWSSprintInputEvent Event{RaceClock, EWSSprintInputType::Tap};
 	PlayerTrace.Add(Event);
 	PlayerRunner->PushInput(Event);
 }

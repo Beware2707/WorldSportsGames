@@ -76,6 +76,31 @@ finished and *feels good*.
 they understand, sees it on a leaderboard, closes the app, reopens it and their
 progress is there.
 
+### Known limits of the slice (require server authority, not client patches)
+
+Two review findings cannot be closed on the client, because the client is
+the thing that would have to be trusted. Both are cheap to close once the
+server issues and verifies race conditions:
+
+1. **The race seed is client-chosen and freely re-rolled.** Wind comes from
+   that seed, and a legal +2.0 m/s tailwind is worth roughly 0.16 s over
+   100 m, so a player can restart until the weather suits them. Fix: the
+   server issues a signed race seed on request and re-derives the wind from
+   it when validating, rejecting any submitted wind that does not match.
+   The client already submits `rng_seed`, so only the server side is
+   missing.
+2. **`input_digest` is a breadcrumb, not proof.** The digest is computed and
+   sent, but the input trace itself is not, so the server cannot recompute
+   it. Combined with the attribute ceiling's deliberate tolerance, a
+   modified client could submit a time near the ceiling. Fix: submit the
+   trace for leaderboard-eligible runs and re-simulate server-side — the
+   simulation is already deterministic and tested to prove exactly that is
+   possible.
+
+Neither is a reason to hold the slice: today's server validation still
+rejects physically impossible results, false starts, incoherent splits and
+over-ceiling times, and every rejection is stored for audit.
+
 ## 4. Phase 3 — Career & progression
 
 Career athlete creation and customization, attributes and training mini-games,

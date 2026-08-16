@@ -81,7 +81,7 @@ void PlayWell(AWSSprintGameMode* GameMode, double Clock, double& NextTapAt)
 	}
 	if (Clock >= NextTapAt)
 	{
-		GameMode->PlayerTap();
+		GameMode->PlayerPress();
 		const double TargetHz =
 			FMath::Max(Runner->TargetCadenceAt(Runner->GetState().Distance), 0.5);
 		NextTapAt = Clock + 1.0 / TargetHz;
@@ -108,11 +108,11 @@ bool FWSRaceFullLoopTest::RunTest(const FString&)
 	bool bHeld = false;
 	bool bReleased = false;
 	double NextTapAt = 0.0;
-	Harness.RunFor(20.0, 1.0 / 60.0, [&](double Clock)
+	Harness.RunFor(30.0, 1.0 / 60.0, [&](double Clock)
 	{
 		if (!bHeld && Clock > -2.0)
 		{
-			Harness.GameMode->PlayerHold();
+			Harness.GameMode->PlayerPress();
 			bHeld = true;
 		}
 		if (!bReleased && Clock >= 0.17)
@@ -179,11 +179,11 @@ bool FWSRaceFalseStartTest::RunTest(const FString&)
 	// Jump the gun: hold, then release while the clock is still negative.
 	bool bHeld = false;
 	bool bJumped = false;
-	Harness.RunFor(6.0, 1.0 / 60.0, [&](double Clock)
+	Harness.RunFor(12.0, 1.0 / 60.0, [&](double Clock)
 	{
 		if (!bHeld && Clock > -2.5)
 		{
-			Harness.GameMode->PlayerHold();
+			Harness.GameMode->PlayerPress();
 			bHeld = true;
 		}
 		if (!bJumped && Clock > -1.0)
@@ -215,6 +215,95 @@ bool FWSRaceFalseStartTest::RunTest(const FString&)
 	TestTrue(TEXT("player is listed as a false start"), bFoundDq);
 	TestTrue(TEXT("verdict explains the DQ"),
 		Harness.GameMode->GetServerVerdict().Contains(TEXT("False start")));
+
+	// A false start recalls the race. Listing the seven athletes who are
+	// still standing in their blocks as a finished field — with position 0
+	// and a 0.00 time — would be a fabricated classification.
+	TestEqual(TEXT("only the DQ is listed"),
+		Harness.GameMode->GetStandings().Num(), 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSRaceLateFirstTouchTest,
+	"WorldSports.Race.FirstTouchAfterTheGunStillRuns",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+bool FWSRaceLateFirstTouchTest::RunTest(const FString&)
+{
+	// A player whose FIRST touch lands after the gun must still be able to
+	// leave the blocks. Gating the hold on the Ready phase stranded them:
+	// the press became a tap, the release was ignored, and they sat in the
+	// blocks until the auto-release rescued them at 1.5s.
+	FRaceHarness Harness;
+	if (!TestNotNull(TEXT("game mode spawned"), Harness.GameMode))
+	{
+		return false;
+	}
+
+	bool bPressed = false;
+	bool bReleased = false;
+	double NextTapAt = 0.0;
+	Harness.RunFor(30.0, 1.0 / 60.0, [&](double Clock)
+	{
+		if (!bPressed && Clock >= 0.25) // first contact, AFTER the gun
+		{
+			Harness.GameMode->PlayerPress();
+			bPressed = true;
+		}
+		if (bPressed && !bReleased && Clock >= 0.40)
+		{
+			Harness.GameMode->PlayerRelease();
+			bReleased = true;
+			NextTapAt = Clock + 0.12;
+		}
+		if (bReleased)
+		{
+			PlayWell(Harness.GameMode, Clock, NextTapAt);
+		}
+	});
+
+	AWSSprintRunner* Player = Harness.GameMode->GetPlayerRunner();
+	TestTrue(TEXT("late starter finished"), Player->HasFinished());
+	const FWSSprintOutcome Outcome = Player->GetOutcome();
+	// Their reaction is their own late release — not the 1500ms auto-release
+	// that a stranded player would have been given.
+	TestTrue(FString::Printf(TEXT("reaction %.0fms is the player's own release"),
+			Outcome.ReactionMs),
+		Outcome.ReactionMs > 350.0 && Outcome.ReactionMs < 600.0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSRaceStaleSubmitTest,
+	"WorldSports.Race.StaleSubmitCannotHijackTheNextRace",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+bool FWSRaceStaleSubmitTest::RunTest(const FString&)
+{
+	// "Race again" while a submission is in flight: the late answer must not
+	// stamp the previous run's verdict on the new race or shove it into the
+	// Reward phase, which would leave it unplayable.
+	FRaceHarness Harness;
+	if (!TestNotNull(TEXT("game mode spawned"), Harness.GameMode))
+	{
+		return false;
+	}
+	Harness.RunFor(32.0);
+	TestTrue(TEXT("first race reached a result"),
+		static_cast<int32>(Harness.GameMode->GetPhase()) >=
+		static_cast<int32>(EWSEventPhase::Result));
+
+	Harness.GameMode->StartRace();
+	// Deliver the PREVIOUS race's answer now.
+	Harness.GameMode->DebugDeliverStaleSubmit();
+
+	TestEqual(TEXT("new race is still in Ready"),
+		static_cast<int32>(Harness.GameMode->GetPhase()),
+		static_cast<int32>(EWSEventPhase::Ready));
+	TestTrue(TEXT("no stale verdict leaked in"),
+		Harness.GameMode->GetServerVerdict().IsEmpty());
+
+	// And the new race still plays to completion.
+	Harness.RunFor(32.0);
+	TestTrue(TEXT("new race completes"),
+		Harness.GameMode->GetPlayerRunner()->HasFinished());
 	return true;
 }
 
@@ -230,7 +319,7 @@ bool FWSRaceIdlePlayerTest::RunTest(const FString&)
 	{
 		return false;
 	}
-	Harness.RunFor(30.0);
+	Harness.RunFor(35.0);
 
 	AWSSprintRunner* Player = Harness.GameMode->GetPlayerRunner();
 	TestTrue(TEXT("idle player still finishes"), Player->HasFinished());
@@ -253,7 +342,7 @@ bool FWSRaceRestartTest::RunTest(const FString&)
 	{
 		return false;
 	}
-	Harness.RunFor(25.0);
+	Harness.RunFor(32.0);
 	TestTrue(TEXT("first race produced standings"),
 		Harness.GameMode->GetStandings().Num() > 0);
 
@@ -272,7 +361,7 @@ bool FWSRaceRestartTest::RunTest(const FString&)
 	}
 	TestEqual(TEXT("exactly one field of runners"), RunnerCount, AWSSprintTrack::LaneCount);
 
-	Harness.RunFor(25.0);
+	Harness.RunFor(32.0);
 	TestTrue(TEXT("second race completes"),
 		Harness.GameMode->GetPlayerRunner()->HasFinished());
 	return true;

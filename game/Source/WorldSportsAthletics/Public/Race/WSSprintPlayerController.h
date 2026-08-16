@@ -34,5 +34,7 @@ private:
 	class AWSSprintGameMode* Sprint() const;
 
 	FVector TouchStart = FVector::ZeroVector;
+	/** The finger currently driving the race; CursorPointerIndex = none. */
+	ETouchIndex::Type HoldFinger = ETouchIndex::CursorPointerIndex;
 	bool bSwipeConsumed = false;
 };

@@ -20,6 +20,7 @@ const TCHAR* LoginPath = TEXT("/api/v1/auth/login");
 const TCHAR* RegisterPath = TEXT("/api/v1/auth/register");
 const TCHAR* MePath = TEXT("/api/v1/auth/me");
 const TCHAR* ResultsPath = TEXT("/api/v1/career/results");
+const TCHAR* AthletePath = TEXT("/api/v1/career/athlete");
 
 FString JsonToString(const TSharedPtr<FJsonObject>& Json)
 {
@@ -253,6 +254,13 @@ EWSSubmitDisposition UWSOnlineSubsystem::ClassifyResultStatus(int32 StatusCode)
 		// the server answers idempotently.
 		return EWSSubmitDisposition::Retryable;
 	}
+	if (StatusCode == 404)
+	{
+		// The career endpoints 404 when the account has no athlete yet.
+		// Dropping the result here would silently discard every race a new
+		// player ever runs — create the athlete and retry instead.
+		return EWSSubmitDisposition::NeedsAthlete;
+	}
 	// 400/404/409/422...: this submission can never succeed. Dropping loses
 	// nothing the server would ever have accepted.
 	return EWSSubmitDisposition::Fatal;
@@ -323,12 +331,54 @@ void UWSOnlineSubsystem::SubmitQueueHead()
 				NotifyAllQueuedAndHalt(
 					FString::Printf(TEXT("Server busy (%d)"), Result.StatusCode));
 				break;
+			case EWSSubmitDisposition::NeedsAthlete:
+				if (bTriedCreatingAthlete)
+				{
+					// Already created one this session and still 404 — this
+					// is an unknown event code or a real contract problem,
+					// not a missing athlete.
+					FinishQueueHead(EWSSubmitOutcome::Failed, FWSResultResponse(),
+						FString::Printf(TEXT("Server answered 404: %s"), *Result.Body));
+					break;
+				}
+				bTriedCreatingAthlete = true;
+				CreateCareerAthleteAndResume();
+				break;
 			case EWSSubmitDisposition::Fatal:
 			default:
 				FinishQueueHead(EWSSubmitOutcome::Failed, FWSResultResponse(),
 					FString::Printf(TEXT("Server answered %d: %s"), Result.StatusCode, *Result.Body));
 				break;
 			}
+		},
+		/*bAuthorized=*/true, /*AttemptsLeft=*/0);
+}
+
+void UWSOnlineSubsystem::CreateCareerAthleteAndResume()
+{
+	TSharedPtr<FJsonObject> Body = MakeShared<FJsonObject>();
+	Body->SetStringField(TEXT("name"),
+		SignedInUser.display_name.IsEmpty() ? TEXT("Athlete") : SignedInUser.display_name);
+	// The catalogue's neutral gender; the player picks a real one in career
+	// creation, which is a Phase 3 screen.
+	Body->SetStringField(TEXT("gender"), TEXT("X"));
+
+	SendRequest(TEXT("POST"), AthletePath, TEXT("application/json"), JsonToString(Body),
+		[this](const FWSHttpResult& Result)
+		{
+			// 409 means an athlete already exists — equally fine to proceed.
+			if (Result.IsSuccess() || (Result.bTransportOk && Result.StatusCode == 409))
+			{
+				UE_LOG(LogWorldSports, Log,
+					TEXT("Career athlete ready; resuming %d queued result(s)"),
+					OfflineQueue.Num());
+				SubmitQueueHead();
+				return;
+			}
+			UE_LOG(LogWorldSports, Error,
+				TEXT("Could not create a career athlete (%d); results stay queued"),
+				Result.StatusCode);
+			NotifyAllQueuedAndHalt(TEXT("Could not create your career athlete"));
 		},
 		/*bAuthorized=*/true, /*AttemptsLeft=*/0);
 }

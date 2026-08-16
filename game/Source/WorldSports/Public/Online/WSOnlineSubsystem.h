@@ -41,6 +41,7 @@ enum class EWSSubmitDisposition : uint8
 	Definitive,    // 2xx: parse the outcome, dequeue
 	AuthExpired,   // 401/403: auth rejected BEFORE processing; keep, halt, re-auth
 	Retryable,     // 408/429/5xx: keep the entry, halt the flush, retry later
+	NeedsAthlete,  // 404: no career athlete yet — create one and retry
 	Fatal          // remaining 4xx: the submission itself can never succeed; drop
 };
 
@@ -135,6 +136,8 @@ private:
 	void SaveQueueToDisk() const;
 	void SwitchQueueUser(int32 UserId);
 	void SubmitQueueHead();
+	/** Create the signed-in user's career athlete, then resume the flush. */
+	void CreateCareerAthleteAndResume();
 	void FinishQueueHead(EWSSubmitOutcome Outcome, const FWSResultResponse& Response, const FString& Error);
 	/** Flush cannot continue (offline / auth expired): every waiter that has
 	 * not heard anything yet gets its one Queued notification. */
@@ -149,5 +152,8 @@ private:
 	TArray<FWSEventResult> OfflineQueue;
 	TArray<FWSSubmitCallback> QueueCallbacks; // parallel to OfflineQueue
 	bool bQueueFlushInFlight = false;
+	/** One athlete-creation attempt per session; a second 404 after a
+	 * successful create means something else is wrong and must not loop. */
+	bool bTriedCreatingAthlete = false;
 	TArray<FTSTicker::FDelegateHandle> PendingTimers;
 };
