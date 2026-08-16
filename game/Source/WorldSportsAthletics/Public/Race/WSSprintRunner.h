@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Simulation/WSPaceSimulation.h"
 #include "Simulation/WSSprintSimulation.h"
 
 #include "WSSprintRunner.generated.h"
@@ -9,10 +10,16 @@
 class UStaticMeshComponent;
 
 /**
- * One athlete in the race — player or AI, identical class. Each owns a
- * simulation and is driven ONLY by stepping it; nothing may write a
- * position or a time directly. The visual is a placeholder capsule body
- * with a procedural stride bob until character art exists.
+ * One athlete in the race — player or AI, identical class, and now any
+ * running event rather than only a sprint. Each owns a simulation and is
+ * driven ONLY by stepping it; nothing may write a position or a time
+ * directly. The visual is a placeholder capsule body with a procedural
+ * stride bob until character art exists.
+ *
+ * The class keeps its Sprint name for now: renaming the files would touch
+ * the track, game mode, HUD and every test for no behavioural gain, and
+ * the rename is worth doing in one deliberate pass rather than smuggled
+ * into an event change.
  */
 UCLASS()
 class WORLDSPORTSATHLETICS_API AWSSprintRunner : public AActor
@@ -27,9 +34,25 @@ public:
 		int32 InLaneIndex, const FString& InDisplayName, bool bInIsPlayer,
 		const FWSSprintEventSpec& InEventSpec);
 
+	/** Create this runner's MIDDLE-DISTANCE simulation instead. Exactly one
+	 * of the two Initialize calls applies to any given runner. */
+	void InitializePaceRace(const FWSSprintAttributes& InAttributes, uint32 Seed,
+		int32 InLaneIndex, const FString& InDisplayName, bool bInIsPlayer,
+		const FWSPaceEventSpec& InPaceSpec);
+
 	/** Queue an input event (player taps, or a pre-generated AI trace). */
 	void PushInput(const FWSSprintInputEvent& Event);
 	void PushTrace(const TArray<FWSSprintInputEvent>& Trace);
+
+	/** The middle-distance equivalents: effort changes and the kick. */
+	void PushPaceInput(const FWSPaceInputEvent& Event);
+	void PushPaceTrace(const TArray<FWSPaceInputEvent>& Trace);
+
+	bool IsPaceEvent() const { return PaceSimulation.IsValid(); }
+
+	/** Live pace state, for the HUD's effort and energy readouts. Only
+	 * meaningful when IsPaceEvent(). */
+	const FWSPaceState& GetPaceState() const;
 
 	/**
 	 * Run to a time the SERVER already decided (a tournament rival).
@@ -46,33 +69,22 @@ public:
 	bool IsScripted() const { return ScriptedFinishSeconds > 0.0; }
 
 	/** Metres between this event's split marks. */
-	double GetSplitSegmentMetres() const
-	{
-		if (!Simulation.IsValid() || Simulation->GetEvent().SplitCount <= 0)
-		{
-			return 10.0;
-		}
-		return Simulation->GetRaceDistance() / Simulation->GetEvent().SplitCount;
-	}
+	double GetSplitSegmentMetres() const;
 
 	/** The distance this runner is racing, in metres. */
-	double GetRaceDistance() const
-	{
-		return Simulation.IsValid() ? Simulation->GetRaceDistance() : ScriptedDistanceMetres;
-	}
+	double GetRaceDistance() const;
 
 	/** Advance the simulation to RaceTime and update the visual. */
 	void AdvanceTo(double RaceTime);
 
-	const FWSSprintState& GetState() const
+	const FWSRaceState& GetState() const;
+	FWSRaceOutcome GetOutcome() const;
+
+	/** Only sprints have a cadence band; middle distance has none. */
+	double TargetCadenceAt(double Distance) const
 	{
-		return ScriptedFinishSeconds > 0.0 ? ScriptedState : Simulation->GetState();
+		return Simulation.IsValid() ? Simulation->TargetCadenceAt(Distance) : 0.0;
 	}
-	FWSSprintOutcome GetOutcome() const
-	{
-		return ScriptedFinishSeconds > 0.0 ? ScriptedOutcome : Simulation->GetOutcome();
-	}
-	double TargetCadenceAt(double Distance) const { return Simulation->TargetCadenceAt(Distance); }
 
 	bool IsPlayer() const { return bIsPlayer; }
 	int32 GetLaneIndex() const { return LaneIndex; }
@@ -82,9 +94,17 @@ public:
 
 private:
 	void UpdateVisual(double RaceTime);
+	void ApplyKitColour();
+	void ProjectPaceState();
 
+	/** Exactly one of these is valid: the event decides which. */
 	TSharedPtr<FWSSprintSimulation> Simulation;
+	TSharedPtr<FWSMiddleDistanceSimulation> PaceSimulation;
 	double SimulatedTime = 0.0;
+
+	/** Middle-distance state projected into the shared race state, so the
+	 * HUD, camera and standings have one shape to read. */
+	FWSRaceState PaceProjectedState;
 
 	UPROPERTY()
 	TObjectPtr<UStaticMeshComponent> Body;
@@ -102,6 +122,6 @@ private:
 	/** >0 when this runner replays a server-decided finish time. */
 	double ScriptedFinishSeconds = 0.0;
 	double ScriptedDistanceMetres = 100.0;
-	FWSSprintOutcome ScriptedOutcome;
-	FWSSprintState ScriptedState;
+	FWSRaceOutcome ScriptedOutcome;
+	FWSRaceState ScriptedState;
 };

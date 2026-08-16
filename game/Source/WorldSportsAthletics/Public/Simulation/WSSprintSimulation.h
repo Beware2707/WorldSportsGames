@@ -81,9 +81,14 @@ struct WORLDSPORTSATHLETICS_API FWSSprintAttributes
 	double GoverningMean(const TArray<FName>& GoverningAttributes) const;
 };
 
-/** Live state, stepped at a fixed rate; also the HUD's data source. */
+/**
+ * Live state of ANY running event, stepped at a fixed rate; also the HUD's
+ * data source. Shared with middle distance, which projects its own state
+ * into this — one race state means one HUD, one camera and one standings
+ * path rather than a parallel set per event kind.
+ */
 USTRUCT(BlueprintType)
-struct WORLDSPORTSATHLETICS_API FWSSprintState
+struct WORLDSPORTSATHLETICS_API FWSRaceState
 {
 	GENERATED_BODY()
 
@@ -99,9 +104,13 @@ struct WORLDSPORTSATHLETICS_API FWSSprintState
 	UPROPERTY(BlueprintReadOnly, Category = "Sprint") bool bFalseStart = false;
 };
 
-/** Everything a finished (or disqualified) run reports. */
+/**
+ * Everything a finished (or disqualified) run reports, for any running
+ * event. Events without blocks leave ReactionMs at zero and events with no
+ * measured wind leave Wind at zero — absent, not invented.
+ */
 USTRUCT(BlueprintType)
-struct WORLDSPORTSATHLETICS_API FWSSprintOutcome
+struct WORLDSPORTSATHLETICS_API FWSRaceOutcome
 {
 	GENERATED_BODY()
 
@@ -143,9 +152,9 @@ public:
 	bool Step();
 
 	/** Run to completion against a full input trace (server replay, AI, tests). */
-	static FWSSprintOutcome RunTrace(const FWSSprintAttributes& Attributes,
+	static FWSRaceOutcome RunTrace(const FWSSprintAttributes& Attributes,
 		uint32 Seed, const TArray<FWSSprintInputEvent>& Trace);
-	static FWSSprintOutcome RunTrace(const FWSSprintAttributes& Attributes,
+	static FWSRaceOutcome RunTrace(const FWSSprintAttributes& Attributes,
 		uint32 Seed, const TArray<FWSSprintInputEvent>& Trace,
 		const FWSSprintEventSpec& InEventSpec);
 
@@ -168,16 +177,16 @@ public:
 		double ReactionMeanMs, double ReactionSpreadMs, double Consistency,
 		const FWSSprintEventSpec& InEventSpec);
 
-	const FWSSprintState& GetState() const { return State; }
-	FWSSprintOutcome GetOutcome() const { return Outcome; }
+	const FWSRaceState& GetState() const { return State; }
+	FWSRaceOutcome GetOutcome() const { return Outcome; }
 
 private:
 	void ApplyEvent(const FWSSprintInputEvent& Event);
 
 	FWSSprintAttributes Attributes;
 	FWSSprintEventSpec EventSpec;
-	FWSSprintState State;
-	FWSSprintOutcome Outcome;
+	FWSRaceState State;
+	FWSRaceOutcome Outcome;
 	double Wind = 0.0;
 	double BandDriftPhase = 0.0; // seeded phase for the fatigue-zone drift
 

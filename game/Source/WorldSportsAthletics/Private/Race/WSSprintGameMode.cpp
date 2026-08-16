@@ -568,7 +568,7 @@ void AWSSprintGameMode::SubmitTournamentRound()
 	{
 		return;
 	}
-	const FWSSprintOutcome Outcome = PlayerRunner->GetOutcome();
+	const FWSRaceOutcome Outcome = PlayerRunner->GetOutcome();
 	if (!Outcome.bFinished)
 	{
 		// A false start in a tournament still consumes nothing: the server
@@ -1011,7 +1011,7 @@ void AWSSprintGameMode::UpdateCamera(float DeltaSeconds)
 	{
 		return;
 	}
-	const FWSSprintState& State = PlayerRunner->GetState();
+	const FWSRaceState& State = PlayerRunner->GetState();
 	const float RunnerX = static_cast<float>(State.Distance) * 100.0f;
 	const float LaneY = PlayerRunner->GetActorLocation().Y;
 
@@ -1107,7 +1107,7 @@ void AWSSprintGameMode::TickAudio(float DeltaSeconds)
 	// Footfalls track the athlete's actual stride, so the sound IS the
 	// rhythm the player is trying to match — an audio version of the band
 	// for players who cannot rely on the visual one.
-	const FWSSprintState& State = PlayerRunner->GetState();
+	const FWSRaceState& State = PlayerRunner->GetState();
 	if (State.bReleased && !State.bFinished && State.Distance >= NextFootfallDistance)
 	{
 		const double StrideMetres = FMath::Max(State.Speed / FMath::Max(State.TargetCadenceHz, 0.5), 0.8);
@@ -1217,8 +1217,8 @@ void AWSSprintGameMode::BuildStandings()
 	// Finishers by time; false starts last — they have no time at all.
 	Sorted.Sort([](const AWSSprintRunner& A, const AWSSprintRunner& B)
 	{
-		const FWSSprintOutcome OutA = A.GetOutcome();
-		const FWSSprintOutcome OutB = B.GetOutcome();
+		const FWSRaceOutcome OutA = A.GetOutcome();
+		const FWSRaceOutcome OutB = B.GetOutcome();
 		if (OutA.bFinished != OutB.bFinished)
 		{
 			return OutA.bFinished;
@@ -1229,7 +1229,7 @@ void AWSSprintGameMode::BuildStandings()
 	int32 Position = 1;
 	for (const AWSSprintRunner* Runner : Sorted)
 	{
-		const FWSSprintOutcome Outcome = Runner->GetOutcome();
+		const FWSRaceOutcome Outcome = Runner->GetOutcome();
 		FWSRaceStanding Standing;
 		Standing.Position = Outcome.bFinished ? Position++ : 0;
 		Standing.Name = Runner->GetDisplayName();
@@ -1259,7 +1259,7 @@ void AWSSprintGameMode::SubmitPlayerResult()
 	{
 		return;
 	}
-	const FWSSprintOutcome Outcome = PlayerRunner->GetOutcome();
+	const FWSRaceOutcome Outcome = PlayerRunner->GetOutcome();
 	if (!Outcome.bFinished)
 	{
 		// A false start has no time to submit. Saying so plainly beats
@@ -1340,7 +1340,7 @@ void AWSSprintGameMode::HandleSubmitOutcome(uint32 Generation, EWSSubmitOutcome 
 
 void AWSSprintGameMode::WSStatus()
 {
-	const FWSSprintState* State = PlayerRunner ? &PlayerRunner->GetState() : nullptr;
+	const FWSRaceState* State = PlayerRunner ? &PlayerRunner->GetState() : nullptr;
 	UE_LOG(LogWorldSports, Display,
 		TEXT("WSStatus app=%d phase=%d clock=%.2f paused=%d signedIn=%d "
 			 "dist=%.1f speed=%.2f board=%d/%s verdict='%s'"),

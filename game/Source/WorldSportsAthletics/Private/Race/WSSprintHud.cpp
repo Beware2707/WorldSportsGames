@@ -804,7 +804,7 @@ public:
 private:
 	AWSSprintGameMode* Mode() const { return GameMode.Get(); }
 
-	const FWSSprintState* PlayerState() const
+	const FWSRaceState* PlayerState() const
 	{
 		AWSSprintGameMode* GameModePtr = Mode();
 		AWSSprintRunner* Runner = GameModePtr ? GameModePtr->GetPlayerRunner() : nullptr;
@@ -823,7 +823,7 @@ private:
 		{
 			return FText::FromString(TEXT("0.00"));
 		}
-		const FWSSprintState* State = PlayerState();
+		const FWSRaceState* State = PlayerState();
 		if (State && State->bFinished)
 		{
 			AWSSprintRunner* Runner = GameModePtr->GetPlayerRunner();
@@ -834,7 +834,7 @@ private:
 
 	FText GetSpeedText() const
 	{
-		const FWSSprintState* State = PlayerState();
+		const FWSRaceState* State = PlayerState();
 		if (!State || !State->bReleased || State->bFinished)
 		{
 			return FText::GetEmpty();
@@ -851,7 +851,7 @@ private:
 		{
 			return FText::GetEmpty();
 		}
-		const FWSSprintOutcome Outcome = Runner->GetOutcome();
+		const FWSRaceOutcome Outcome = Runner->GetOutcome();
 		if (Outcome.bFalseStart)
 		{
 			return LOCTEXT("FalseStartTag", "FALSE START");
@@ -872,7 +872,7 @@ private:
 		{
 			return FText::GetEmpty();
 		}
-		const FWSSprintState* State = PlayerState();
+		const FWSRaceState* State = PlayerState();
 		if (State && State->bFalseStart)
 		{
 			return LOCTEXT("FalseStartPrompt", "FALSE START");
@@ -907,7 +907,7 @@ private:
 
 	FSlateColor GetPromptColor() const
 	{
-		const FWSSprintState* State = PlayerState();
+		const FWSRaceState* State = PlayerState();
 		if (State && State->bFalseStart)
 		{
 			return FSlateColor(FLinearColor(1.0f, 0.35f, 0.3f));
@@ -917,7 +917,7 @@ private:
 
 	EVisibility GetBandVisibility() const
 	{
-		const FWSSprintState* State = PlayerState();
+		const FWSRaceState* State = PlayerState();
 		return State && State->bReleased && !State->bFinished && !State->bFalseStart
 			? EVisibility::HitTestInvisible
 			: EVisibility::Collapsed;
@@ -928,7 +928,7 @@ private:
 	{
 		constexpr float BandWidth = 520.0f;
 		constexpr float Centre = BandWidth * 0.5f - 7.0f; // half the marker
-		const FWSSprintState* State = PlayerState();
+		const FWSRaceState* State = PlayerState();
 		if (!State || State->TargetCadenceHz <= 0.0)
 		{
 			return FOptionalSize(Centre);
@@ -941,7 +941,7 @@ private:
 
 	FSlateColor GetBandColor() const
 	{
-		const FWSSprintState* State = PlayerState();
+		const FWSRaceState* State = PlayerState();
 		const float Accuracy = State ? static_cast<float>(State->CadenceAccuracy) : 0.0f;
 		// Colour reinforces; position and the label carry the meaning.
 		return FSlateColor(FMath::Lerp(
@@ -950,7 +950,7 @@ private:
 
 	FText GetBandLabel() const
 	{
-		const FWSSprintState* State = PlayerState();
+		const FWSRaceState* State = PlayerState();
 		if (!State || State->TargetCadenceHz <= 0.0)
 		{
 			return FText::GetEmpty();
@@ -965,7 +965,7 @@ private:
 
 	FText GetStaminaText() const
 	{
-		const FWSSprintState* State = PlayerState();
+		const FWSRaceState* State = PlayerState();
 		if (!State || !State->bReleased || State->bFinished)
 		{
 			return FText::GetEmpty();
@@ -1023,7 +1023,7 @@ private:
 		{
 			return FText::GetEmpty();
 		}
-		const FWSSprintOutcome Outcome = Runner->GetOutcome();
+		const FWSRaceOutcome Outcome = Runner->GetOutcome();
 		if (Outcome.bFalseStart)
 		{
 			return LOCTEXT("DQ", "Disqualified — false start");

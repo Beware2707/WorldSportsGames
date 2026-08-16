@@ -354,13 +354,13 @@ bool FWSSprintSimulation::Step()
 	return State.RaceTime < SafetyCapSecondsPer100m * (EventSpec.DistanceMetres / 100.0);
 }
 
-FWSSprintOutcome FWSSprintSimulation::RunTrace(const FWSSprintAttributes& Attributes,
+FWSRaceOutcome FWSSprintSimulation::RunTrace(const FWSSprintAttributes& Attributes,
 	uint32 Seed, const TArray<FWSSprintInputEvent>& Trace)
 {
 	return RunTrace(Attributes, Seed, Trace, WSSprintEvents::All()[0]);
 }
 
-FWSSprintOutcome FWSSprintSimulation::RunTrace(const FWSSprintAttributes& Attributes,
+FWSRaceOutcome FWSSprintSimulation::RunTrace(const FWSSprintAttributes& Attributes,
 	uint32 Seed, const TArray<FWSSprintInputEvent>& Trace,
 	const FWSSprintEventSpec& InEventSpec)
 {
@@ -451,7 +451,7 @@ TArray<FWSSprintInputEvent> FWSSprintSimulation::GenerateAITrace(
 	// for longer — no per-event tuning needed.
 	while (Shadow.Step())
 	{
-		const FWSSprintState& Live = Shadow.GetState();
+		const FWSRaceState& Live = Shadow.GetState();
 		if (!Live.bReleased)
 		{
 			continue;

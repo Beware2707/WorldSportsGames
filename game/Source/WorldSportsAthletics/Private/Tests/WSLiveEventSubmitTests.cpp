@@ -49,7 +49,7 @@ FWSEventResult SimulateRun(const FWSSprintEventSpec& Spec, uint32 Seed)
 	const FWSSprintAttributes Attributes;
 	const TArray<FWSSprintInputEvent> Trace = FWSSprintSimulation::GenerateAITrace(
 		Attributes, Seed, Seed, 175.0, 20.0, 0.82, Spec);
-	const FWSSprintOutcome Outcome =
+	const FWSRaceOutcome Outcome =
 		FWSSprintSimulation::RunTrace(Attributes, Seed, Trace, Spec);
 
 	FWSEventResult Result;

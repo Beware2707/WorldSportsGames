@@ -63,8 +63,8 @@ bool FWSSprintDeterminismTest::RunTest(const FString&)
 	const TArray<FWSSprintInputEvent> Trace =
 		FWSSprintSimulation::GenerateAITrace(Attributes, 42u, 42u, 180.0, 25.0, 0.7);
 
-	const FWSSprintOutcome First = FWSSprintSimulation::RunTrace(Attributes, 42u, Trace);
-	const FWSSprintOutcome Second = FWSSprintSimulation::RunTrace(Attributes, 42u, Trace);
+	const FWSRaceOutcome First = FWSSprintSimulation::RunTrace(Attributes, 42u, Trace);
+	const FWSRaceOutcome Second = FWSSprintSimulation::RunTrace(Attributes, 42u, Trace);
 
 	TestTrue(TEXT("finished"), First.bFinished && Second.bFinished);
 	TestEqual(TEXT("identical time"), First.TimeSeconds, Second.TimeSeconds);
@@ -78,7 +78,7 @@ bool FWSSprintDeterminismTest::RunTest(const FString&)
 	}
 
 	// A different seed is a different race (wind, band drift).
-	const FWSSprintOutcome Other = FWSSprintSimulation::RunTrace(Attributes, 43u, Trace);
+	const FWSRaceOutcome Other = FWSSprintSimulation::RunTrace(Attributes, 43u, Trace);
 	TestNotEqual(TEXT("different seed differs"), First.TimeSeconds, Other.TimeSeconds);
 	return true;
 }
@@ -115,7 +115,7 @@ bool FWSSprintCeilingCalibrationTest::RunTest(const FString&)
 			double SlowestTime = 0.0;
 			for (uint32 Seed = 1; Seed <= 32; ++Seed)
 			{
-				const FWSSprintOutcome Outcome = FWSSprintSimulation::RunTrace(
+				const FWSRaceOutcome Outcome = FWSSprintSimulation::RunTrace(
 					Attributes, Seed, BestRealisticTrace(Attributes, Seed, Spec), Spec);
 				TestTrue(FString::Printf(TEXT("%s attrs %.0f seed %u finished"),
 						*Spec.Code, Level, Seed),
@@ -222,7 +222,7 @@ bool FWSSprintLopsidedCeilingTest::RunTest(const FString&)
 			uint32 WorstSeed = 0;
 			for (uint32 Seed = 1; Seed <= 32; ++Seed)
 			{
-				const FWSSprintOutcome Outcome = FWSSprintSimulation::RunTrace(
+				const FWSRaceOutcome Outcome = FWSSprintSimulation::RunTrace(
 					Attributes, Seed, BestRealisticTrace(Attributes, Seed, Spec), Spec);
 				TestTrue(TEXT("finished"), Outcome.bFinished);
 				if (Outcome.TimeSeconds - Ceiling < WorstMargin)
@@ -253,9 +253,9 @@ bool FWSSprintSkillDecidesTest::RunTest(const FString&)
 	// Identical athletes, identical seed: the better rhythm must win by a
 	// meaningful margin. "Attributes raise the ceiling; execution decides."
 	const FWSSprintAttributes Attributes = UniformAttributes(50.0f);
-	const FWSSprintOutcome Sharp = FWSSprintSimulation::RunTrace(Attributes, 77u,
+	const FWSRaceOutcome Sharp = FWSSprintSimulation::RunTrace(Attributes, 77u,
 		FWSSprintSimulation::GenerateAITrace(Attributes, 77u, 77u, 150.0, 0.0, 0.95));
-	const FWSSprintOutcome Sloppy = FWSSprintSimulation::RunTrace(Attributes, 77u,
+	const FWSRaceOutcome Sloppy = FWSSprintSimulation::RunTrace(Attributes, 77u,
 		FWSSprintSimulation::GenerateAITrace(Attributes, 77u, 77u, 150.0, 0.0, 0.10));
 
 	TestTrue(TEXT("both finish"), Sharp.bFinished && Sloppy.bFinished);
@@ -265,10 +265,10 @@ bool FWSSprintSkillDecidesTest::RunTest(const FString&)
 
 	// And a World Class athlete played terribly loses to a Regional athlete
 	// played well — the anti-pay-to-win constraint, executable.
-	const FWSSprintOutcome EliteBadly = FWSSprintSimulation::RunTrace(
+	const FWSRaceOutcome EliteBadly = FWSSprintSimulation::RunTrace(
 		UniformAttributes(85.0f), 77u,
 		FWSSprintSimulation::GenerateAITrace(UniformAttributes(85.0f), 77u, 77u, 150.0, 0.0, 0.05));
-	const FWSSprintOutcome RegionalWell = FWSSprintSimulation::RunTrace(
+	const FWSRaceOutcome RegionalWell = FWSSprintSimulation::RunTrace(
 		UniformAttributes(45.0f), 77u,
 		FWSSprintSimulation::GenerateAITrace(UniformAttributes(45.0f), 77u, 77u, 150.0, 0.0, 0.98));
 	TestTrue(FString::Printf(
@@ -290,7 +290,7 @@ bool FWSSprintFalseStartTest::RunTest(const FString&)
 		TArray<FWSSprintInputEvent> Trace;
 		Trace.Add({-2.0, EWSSprintInputType::HoldStart});
 		Trace.Add({0.060, EWSSprintInputType::Release});
-		const FWSSprintOutcome Outcome = FWSSprintSimulation::RunTrace(Attributes, 5u, Trace);
+		const FWSRaceOutcome Outcome = FWSSprintSimulation::RunTrace(Attributes, 5u, Trace);
 		TestTrue(TEXT("60ms is a false start"), Outcome.bFalseStart);
 		TestFalse(TEXT("no time for a false start"), Outcome.bFinished);
 	}
@@ -299,7 +299,7 @@ bool FWSSprintFalseStartTest::RunTest(const FString&)
 		TArray<FWSSprintInputEvent> Trace;
 		Trace.Add({-2.0, EWSSprintInputType::HoldStart});
 		Trace.Add({-0.3, EWSSprintInputType::Release});
-		const FWSSprintOutcome Outcome = FWSSprintSimulation::RunTrace(Attributes, 5u, Trace);
+		const FWSRaceOutcome Outcome = FWSSprintSimulation::RunTrace(Attributes, 5u, Trace);
 		TestTrue(TEXT("pre-gun release is a false start"), Outcome.bFalseStart);
 	}
 	// 101ms is legal, if superhuman.
@@ -307,7 +307,7 @@ bool FWSSprintFalseStartTest::RunTest(const FString&)
 		TArray<FWSSprintInputEvent> Trace;
 		Trace.Add({-2.0, EWSSprintInputType::HoldStart});
 		Trace.Add({0.101, EWSSprintInputType::Release});
-		const FWSSprintOutcome Outcome = FWSSprintSimulation::RunTrace(Attributes, 5u, Trace);
+		const FWSRaceOutcome Outcome = FWSSprintSimulation::RunTrace(Attributes, 5u, Trace);
 		TestFalse(TEXT("101ms stands"), Outcome.bFalseStart);
 		TestTrue(TEXT("race completes"), Outcome.bFinished);
 	}
@@ -331,7 +331,7 @@ bool FWSSprintSplitCoherenceTest::RunTest(const FString&)
 			// A mid-table athlete playing loosely — the ordinary case the
 			// validator sees most, not a calibration extreme.
 			const FWSSprintAttributes Attributes = UniformAttributes(60.0f);
-			const FWSSprintOutcome Outcome = FWSSprintSimulation::RunTrace(Attributes, Seed,
+			const FWSRaceOutcome Outcome = FWSSprintSimulation::RunTrace(Attributes, Seed,
 				FWSSprintSimulation::GenerateAITrace(
 					Attributes, Seed, Seed, 170.0, 30.0, 0.8, Spec), Spec);
 			TestTrue(TEXT("finished"), Outcome.bFinished);
@@ -387,7 +387,7 @@ bool FWSSprintDifficultyLadderTest::RunTest(const FString&)
 		for (uint32 Seed = 100; Seed < 112; ++Seed)
 		{
 			const FWSSprintAttributes Attributes = Level.MakeAttributes();
-			const FWSSprintOutcome Outcome = FWSSprintSimulation::RunTrace(
+			const FWSRaceOutcome Outcome = FWSSprintSimulation::RunTrace(
 				Attributes, Seed,
 				FWSSprintSimulation::GenerateAITrace(
 				Attributes, Seed, Seed,
@@ -432,7 +432,7 @@ bool FWSSprintDigestAndIdleTest::RunTest(const FString&)
 
 	// A player who never touches the screen still gets a race: auto-release
 	// plus baseline "jog" accuracy — slow, legal, and it always ends.
-	const FWSSprintOutcome Idle =
+	const FWSRaceOutcome Idle =
 		FWSSprintSimulation::RunTrace(Attributes, 9u, {});
 	TestTrue(TEXT("idle race finishes"), Idle.bFinished);
 	TestTrue(TEXT("idle reaction is the auto-release"), Idle.ReactionMs >= 1000.0);

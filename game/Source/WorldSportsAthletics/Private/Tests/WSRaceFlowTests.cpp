@@ -137,7 +137,7 @@ bool FWSRaceFullLoopTest::RunTest(const FString&)
 	TestTrue(TEXT("player finished"), Player->HasFinished());
 	TestFalse(TEXT("no false start"), Player->HasFalseStarted());
 
-	const FWSSprintOutcome Outcome = Player->GetOutcome();
+	const FWSRaceOutcome Outcome = Player->GetOutcome();
 	TestTrue(FString::Printf(TEXT("plausible time %.3f"), Outcome.TimeSeconds),
 		Outcome.TimeSeconds > 9.5 && Outcome.TimeSeconds < 20.0);
 	TestEqual(TEXT("ten splits"), Outcome.Splits.Num(), 10);
@@ -224,7 +224,7 @@ bool FWSRaceEventSelectionTest::RunTest(const FString&)
 		TestTrue(FString::Printf(TEXT("%s: player finished"), *Spec.Code),
 			Player->HasFinished());
 
-		const FWSSprintOutcome Outcome = Player->GetOutcome();
+		const FWSRaceOutcome Outcome = Player->GetOutcome();
 		TestEqual(FString::Printf(TEXT("%s: split count"), *Spec.Code),
 			Outcome.Splits.Num(), Spec.SplitCount);
 		TestTrue(FString::Printf(
@@ -308,7 +308,7 @@ bool FWSRaceFalseStartTest::RunTest(const FString&)
 	TestTrue(TEXT("false start recorded"), Player->HasFalseStarted());
 	TestFalse(TEXT("no finish"), Player->HasFinished());
 
-	const FWSSprintOutcome Outcome = Player->GetOutcome();
+	const FWSRaceOutcome Outcome = Player->GetOutcome();
 	TestEqual(TEXT("no time is claimed"), Outcome.TimeSeconds, 0.0);
 	TestEqual(TEXT("no splits are claimed"), Outcome.Splits.Num(), 0);
 
@@ -374,7 +374,7 @@ bool FWSRaceLateFirstTouchTest::RunTest(const FString&)
 
 	AWSSprintRunner* Player = Harness.GameMode->GetPlayerRunner();
 	TestTrue(TEXT("late starter finished"), Player->HasFinished());
-	const FWSSprintOutcome Outcome = Player->GetOutcome();
+	const FWSRaceOutcome Outcome = Player->GetOutcome();
 	// Their reaction is their own late release — not the 1500ms auto-release
 	// that a stranded player would have been given.
 	TestTrue(FString::Printf(TEXT("reaction %.0fms is the player's own release"),
@@ -548,7 +548,7 @@ bool FWSRaceReplayTest::RunTest(const FString&)
 
 	AWSSprintRunner* Player = Harness.GameMode->GetPlayerRunner();
 	TestTrue(TEXT("race finished"), Player->HasFinished());
-	const FWSSprintOutcome Before = Player->GetOutcome();
+	const FWSRaceOutcome Before = Player->GetOutcome();
 	const FVector EndPosition = Player->GetActorLocation();
 
 	Harness.GameMode->PlayFinishReplay();
@@ -564,7 +564,7 @@ bool FWSRaceReplayTest::RunTest(const FString&)
 
 	// ...and the RESULT is untouched. A replay is presentation, never a
 	// second chance to change what happened.
-	const FWSSprintOutcome After = Player->GetOutcome();
+	const FWSRaceOutcome After = Player->GetOutcome();
 	TestEqual(TEXT("time unchanged"), After.TimeSeconds, Before.TimeSeconds);
 	TestEqual(TEXT("splits unchanged"), After.Splits.Num(), Before.Splits.Num());
 	TestEqual(TEXT("standings unchanged"),
