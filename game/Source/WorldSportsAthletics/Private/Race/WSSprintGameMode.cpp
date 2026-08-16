@@ -7,6 +7,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Online/WSOnlineSubsystem.h"
 #include "Progression/WSProgressionSubsystem.h"
+#include "Progression/WSTournamentSubsystem.h"
 #include "Race/WSSprintAudio.h"
 #include "Race/WSSprintHud.h"
 #include "Race/WSSprintPlayerController.h"
@@ -76,14 +77,24 @@ void AWSSprintGameMode::BeginPlay()
 void AWSSprintGameMode::ShowScreen(EWSAppState NewState)
 {
 	AppState = NewState;
+	// Screens that show server state refresh on entry, wherever entry came
+	// from. Refreshing only in the menu button's handler left the career
+	// screen showing "Sign in to start a career" to a signed-in player who
+	// arrived any other way.
 	if (NewState == EWSAppState::Leaderboard)
 	{
 		RefreshLeaderboard();
+	}
+	else if (NewState == EWSAppState::Career)
+	{
+		RefreshCareer();
 	}
 }
 
 void AWSSprintGameMode::StartQuickPlay()
 {
+	// Quick Play is explicitly NOT a tournament round.
+	bTournamentRace = false;
 	AppState = EWSAppState::Racing;
 	bPaused = false;
 	StartRace();
@@ -95,6 +106,7 @@ void AWSSprintGameMode::ReturnToMenu()
 	// nothing was finished — an unfinished run has no time to claim.
 	bRaceRunning = false;
 	bPaused = false;
+	bTournamentRace = false;
 	++RaceGeneration; // any in-flight submit answer is now stale
 	AppState = EWSAppState::Menu;
 	SetPhase(EWSEventPhase::Load);
@@ -401,6 +413,199 @@ FString AWSSprintGameMode::GetCareerSummary() const
 	return Text;
 }
 
+// -- Tournament ----------------------------------------------------------
+
+UWSTournamentSubsystem* AWSSprintGameMode::Tournaments() const
+{
+	return GetGameInstance()
+		? GetGameInstance()->GetSubsystem<UWSTournamentSubsystem>()
+		: nullptr;
+}
+
+void AWSSprintGameMode::EnterTournament()
+{
+	UWSTournamentSubsystem* T = Tournaments();
+	if (!T)
+	{
+		TournamentStatus = TEXT("Online service unavailable");
+		return;
+	}
+	TournamentStatus = TEXT("Entering…");
+	TWeakObjectPtr<AWSSprintGameMode> WeakThis(this);
+	T->EnterOrResume(SprintEventCode, [WeakThis](bool bOk, const FString& Error)
+	{
+		if (AWSSprintGameMode* Self = WeakThis.Get())
+		{
+			Self->TournamentStatus = bOk ? FString() : Error;
+		}
+	});
+}
+
+void AWSSprintGameMode::RaceTournamentRound()
+{
+	UWSTournamentSubsystem* T = Tournaments();
+	if (!T || !T->HasActiveTournament())
+	{
+		TournamentStatus = TEXT("No tournament in progress");
+		return;
+	}
+	bTournamentRace = true;
+	AppState = EWSAppState::Racing;
+	bPaused = false;
+	StartRace();
+}
+
+FString AWSSprintGameMode::GetTournamentSummary() const
+{
+	const UWSTournamentSubsystem* T = Tournaments();
+	if (!T || !T->GetActive().IsValid())
+	{
+		return TEXT("No tournament yet. Enter one to race a bracket:\n"
+			"qualification, heat, semifinal, final.");
+	}
+	const FWSTournamentDto& Bracket = T->GetActive();
+
+	FString Text = FString::Printf(TEXT("%s   %s\n\n"),
+		*Bracket.Event, *Bracket.Status.Replace(TEXT("_"), TEXT(" ")));
+	for (const FWSTournamentRound& Round : Bracket.Rounds)
+	{
+		const bool bCurrent = Round.Round == Bracket.CurrentRound;
+		Text += FString::Printf(TEXT("%s%s"),
+			bCurrent ? TEXT("> ") : TEXT("  "),
+			*Round.Round.Replace(TEXT("_"), TEXT(" ")).ToUpper());
+		if (Round.bRun)
+		{
+			Text += FString::Printf(TEXT("   %d%s   %s\n"),
+				Round.Position,
+				Round.Position == 1 ? TEXT("st") : Round.Position == 2 ? TEXT("nd")
+					: Round.Position == 3 ? TEXT("rd") : TEXT("th"),
+				Round.bAdvanced ? TEXT("advanced") : TEXT("eliminated"));
+		}
+		else
+		{
+			// The draw is visible BEFORE the race, because the server
+			// generated it before the race — showing it afterwards would
+			// imply the opponents were chosen to fit the player's time.
+			Text += FString::Printf(TEXT("   %d rivals to beat\n"), Round.Field.Num());
+			if (bCurrent)
+			{
+				for (const FWSTournamentRival& Rival : Round.Field)
+				{
+					Text += FString::Printf(TEXT("      %-16s %s  %.2f\n"),
+						*Rival.Name, *Rival.Country, Rival.TimeSeconds);
+				}
+			}
+		}
+	}
+
+	if (Bracket.IsComplete())
+	{
+		Text += Bracket.FinalPosition > 0 && Bracket.FinalPosition <= 3
+			? FString::Printf(TEXT("\n%s MEDAL — finished %d%s\n"),
+				Bracket.FinalPosition == 1 ? TEXT("GOLD") :
+				Bracket.FinalPosition == 2 ? TEXT("SILVER") : TEXT("BRONZE"),
+				Bracket.FinalPosition,
+				Bracket.FinalPosition == 1 ? TEXT("st") :
+				Bracket.FinalPosition == 2 ? TEXT("nd") : TEXT("rd"))
+			: FString::Printf(TEXT("\nTournament over — finished %d%s\n"),
+				Bracket.FinalPosition,
+				Bracket.FinalPosition == 1 ? TEXT("st") : TEXT("th"));
+	}
+	return Text;
+}
+
+void AWSSprintGameMode::SubmitTournamentRound()
+{
+	UWSTournamentSubsystem* T = Tournaments();
+	if (!PlayerRunner || !T)
+	{
+		return;
+	}
+	const FWSSprintOutcome Outcome = PlayerRunner->GetOutcome();
+	if (!Outcome.bFinished)
+	{
+		// A false start in a tournament still consumes nothing: the server
+		// only advances a round it accepted, so saying so plainly is both
+		// accurate and the same rule a free run follows.
+		ServerVerdict = TEXT("False start — the round was not run");
+		return;
+	}
+
+	FWSEventResult Result;
+	Result.EventCode = SprintEventCode;
+	Result.ValueNum = Outcome.TimeSeconds;
+	Result.bHasReactionMs = true;
+	Result.ReactionMs = Outcome.ReactionMs;
+	Result.Splits = Outcome.Splits;
+	Result.bHasWind = true;
+	Result.Wind = Outcome.Wind;
+	Result.RngSeed = FString::Printf(TEXT("%u"), RaceSeed);
+	Result.InputDigest = FWSSprintSimulation::DigestTrace(PlayerTrace);
+
+	bAwaitingServer = true;
+	SetPhase(EWSEventPhase::Submit);
+
+	TWeakObjectPtr<AWSSprintGameMode> WeakThis(this);
+	const uint32 Generation = RaceGeneration;
+	T->SubmitRound(Result,
+		[WeakThis, Generation](bool bOk, const FWSTournamentResultDto& Response,
+			const FString& Error)
+		{
+			AWSSprintGameMode* Self = WeakThis.Get();
+			if (!Self || Self->RaceGeneration != Generation)
+			{
+				return; // the player already started another race
+			}
+			Self->bAwaitingServer = false;
+			if (!bOk)
+			{
+				Self->ServerVerdict = Error;
+			}
+			else if (!Response.accepted)
+			{
+				Self->ServerVerdict = FString::Printf(
+					TEXT("Round not counted: %s"), *Response.rejection_reason);
+			}
+			else if (Response.tournament_status == TEXT("completed"))
+			{
+				// Only a completed FINAL has a final position, and only the
+				// top three are medals.
+				const int32 Place = Response.final_position;
+				Self->ServerVerdict = Place >= 1 && Place <= 3
+					? FString::Printf(TEXT("%s MEDAL — %d%s in the final · +%d XP"),
+						Place == 1 ? TEXT("GOLD") : Place == 2 ? TEXT("SILVER") : TEXT("BRONZE"),
+						Place, Place == 1 ? TEXT("st") : Place == 2 ? TEXT("nd") : TEXT("rd"),
+						Response.xp_awarded)
+					: FString::Printf(TEXT("%d%s in the final · +%d XP"),
+						Place, Place == 4 ? TEXT("th") : TEXT("th"), Response.xp_awarded);
+			}
+			else if (Response.tournament_status == TEXT("eliminated"))
+			{
+				// An eliminated athlete has NO final position — the server
+				// leaves it null. Printing it anyway said "0th in the
+				// semifinal", which is not a placing anyone ran.
+				Self->ServerVerdict = FString::Printf(
+					TEXT("%d%s in the %s — eliminated · +%d XP"),
+					Response.position,
+					Response.position == 1 ? TEXT("st") : Response.position == 2 ? TEXT("nd")
+						: Response.position == 3 ? TEXT("rd") : TEXT("th"),
+					*Response.round, Response.xp_awarded);
+			}
+			else
+			{
+				Self->ServerVerdict = FString::Printf(
+					TEXT("%d%s in the %s — %s · +%d XP"),
+					Response.position,
+					Response.position == 1 ? TEXT("st") : Response.position == 2 ? TEXT("nd")
+						: Response.position == 3 ? TEXT("rd") : TEXT("th"),
+					*Response.round,
+					Response.advanced ? TEXT("through to the next round") : TEXT("eliminated"),
+					Response.xp_awarded);
+			}
+			Self->SetPhase(EWSEventPhase::Reward);
+		});
+}
+
 // -- Reaction drill ------------------------------------------------------
 
 void AWSSprintGameMode::StartReactionDrill()
@@ -529,6 +734,15 @@ void AWSSprintGameMode::StartRace()
 	SetCallOffsetSeconds = FMath::Min(
 		0.85 + StartStream.FRand() * 1.45, SetDurationSeconds - 0.5);
 	RaceClock = -SetDurationSeconds;
+
+	TournamentField.Reset();
+	if (bTournamentRace)
+	{
+		if (const UWSTournamentSubsystem* T = Tournaments())
+		{
+			TournamentField = T->GetCurrentField();
+		}
+	}
 
 	SpawnField();
 	bRaceRunning = true;
@@ -715,7 +929,18 @@ bool AWSSprintGameMode::CanLeavePhase(EWSEventPhase Phase) const
 void AWSSprintGameMode::OnPhaseEntered(EWSEventPhase NewPhase)
 {
 	Super::OnPhaseEntered(NewPhase);
-	if (NewPhase == EWSEventPhase::Result)
+	if (NewPhase != EWSEventPhase::Result)
+	{
+		return;
+	}
+	// A tournament round is scored against the field the server stored
+	// before the race, so it goes to the bracket endpoint — never to the
+	// free-run path, which would award XP for a round nobody ran.
+	if (bTournamentRace)
+	{
+		SubmitTournamentRound();
+	}
+	else
 	{
 		SubmitPlayerResult();
 	}

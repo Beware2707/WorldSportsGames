@@ -30,11 +30,31 @@ public:
 	void PushInput(const FWSSprintInputEvent& Event);
 	void PushTrace(const TArray<FWSSprintInputEvent>& Trace);
 
+	/**
+	 * Run to a time the SERVER already decided (a tournament rival).
+	 *
+	 * This is the one case where a runner is not simulated, and it is the
+	 * honest one: the server generated and stored this field before the
+	 * race, and it scores the player against those exact times. Simulating
+	 * the rival instead would put a different race on screen from the one
+	 * being scored. It is never used for the player, whose time must always
+	 * emerge from play.
+	 */
+	void SetScriptedFinish(double FinishTimeSeconds);
+
+	bool IsScripted() const { return ScriptedFinishSeconds > 0.0; }
+
 	/** Advance the simulation to RaceTime and update the visual. */
 	void AdvanceTo(double RaceTime);
 
-	const FWSSprintState& GetState() const { return Simulation->GetState(); }
-	FWSSprintOutcome GetOutcome() const { return Simulation->GetOutcome(); }
+	const FWSSprintState& GetState() const
+	{
+		return ScriptedFinishSeconds > 0.0 ? ScriptedState : Simulation->GetState();
+	}
+	FWSSprintOutcome GetOutcome() const
+	{
+		return ScriptedFinishSeconds > 0.0 ? ScriptedOutcome : Simulation->GetOutcome();
+	}
 	double TargetCadenceAt(double Distance) const { return Simulation->TargetCadenceAt(Distance); }
 
 	bool IsPlayer() const { return bIsPlayer; }
@@ -62,4 +82,8 @@ private:
 	FString DisplayName;
 	bool bIsPlayer = false;
 	double StridePhase = 0.0;
+	/** >0 when this runner replays a server-decided finish time. */
+	double ScriptedFinishSeconds = 0.0;
+	FWSSprintOutcome ScriptedOutcome;
+	FWSSprintState ScriptedState;
 };

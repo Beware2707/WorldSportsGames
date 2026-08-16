@@ -24,7 +24,8 @@ enum class EWSAppState : uint8
 	Settings,
 	Career,        // athlete, attributes, stage, records
 	CreateAthlete, // first-run career creation
-	Training       // a drill in progress
+	Training,      // a drill in progress
+	Tournament     // bracket: enter, see the draw, race the next round
 };
 
 /** One row of the server's leaderboard. */
@@ -169,6 +170,25 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Race")
 	FString GetCareerRecordsText() const { return RecordsText; }
 
+	// -- Tournament ------------------------------------------------------
+
+	/** Enter (or resume) a 100m tournament and show the bracket. */
+	UFUNCTION(BlueprintCallable, Category = "Race")
+	void EnterTournament();
+
+	/** Race the current round. The field is the server's, not the client's. */
+	UFUNCTION(BlueprintCallable, Category = "Race")
+	void RaceTournamentRound();
+
+	UFUNCTION(BlueprintPure, Category = "Race")
+	bool IsTournamentRace() const { return bTournamentRace; }
+
+	/** Bracket as text: each round, its draw, and how it went. */
+	FString GetTournamentSummary() const;
+
+	UFUNCTION(BlueprintPure, Category = "Race")
+	FString GetTournamentStatus() const { return TournamentStatus; }
+
 	// -- Training --------------------------------------------------------
 
 	/** Begin the reaction drill: hold, wait for the tone, release. */
@@ -202,6 +222,9 @@ public:
 	UFUNCTION(Exec) void WSAccount() { ShowScreen(EWSAppState::SignIn); }
 	UFUNCTION(Exec) void WSCareer() { ShowScreen(EWSAppState::Career); }
 	UFUNCTION(Exec) void WSTraining() { ShowScreen(EWSAppState::Training); }
+	UFUNCTION(Exec) void WSTournament() { ShowScreen(EWSAppState::Tournament); }
+	UFUNCTION(Exec) void WSEnterTournament() { EnterTournament(); }
+	UFUNCTION(Exec) void WSRaceRound() { RaceTournamentRound(); }
 	/** Reports the live race/app state into the log, for adb logcat. */
 	UFUNCTION(Exec) void WSStatus();
 
@@ -245,6 +268,8 @@ private:
 		const FWSResultResponse& Response, const FString& Error);
 	FWSSprintAttributes ResolvePlayerAttributes() const;
 	class UWSProgressionSubsystem* Progression() const;
+	class UWSTournamentSubsystem* Tournaments() const;
+	void SubmitTournamentRound();
 
 	UPROPERTY()
 	TObjectPtr<AWSSprintTrack> Track;
@@ -299,6 +324,13 @@ private:
 	bool bLeaderboardInFlight = false;
 	FString CareerStatus;
 	FString RecordsText;
+	FString TournamentStatus;
+	/** True while the current race belongs to a tournament round: its result
+	 * goes to the bracket endpoint, which scores it against the field the
+	 * server stored BEFORE the race. */
+	bool bTournamentRace = false;
+	/** The rivals the server drew for the current round. */
+	TArray<FWSTournamentRival> TournamentField;
 
 	// -- Reaction drill state (the first training mini-game) -------------
 	// It reuses the race's start mechanic deliberately: the skill being

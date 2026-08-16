@@ -137,6 +137,76 @@ struct WORLDSPORTS_API FWSTrainingResponse
 	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") float daily_remaining = 0.0f;
 };
 
+/** One opponent in a server-generated tournament field. */
+USTRUCT(BlueprintType)
+struct WORLDSPORTS_API FWSTournamentRival
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") FString Name;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") FString Country;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") double TimeSeconds = 0.0;
+};
+
+/** backend RoundOut. */
+USTRUCT(BlueprintType)
+struct WORLDSPORTS_API FWSTournamentRound
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") FString Round;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") TArray<FWSTournamentRival> Field;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") int32 Position = 0;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") bool bAdvanced = false;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") bool bRun = false;
+};
+
+/**
+ * backend TournamentOut. The bracket is SERVER state: the field for each
+ * round is generated and stored before the round is run, so the opponents
+ * a player races were decided before their time existed.
+ */
+USTRUCT(BlueprintType)
+struct WORLDSPORTS_API FWSTournamentDto
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") int32 Id = 0;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") FString Event;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") FString CurrentRound;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") FString Status;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") int32 FinalPosition = 0;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") TArray<FWSTournamentRound> Rounds;
+
+	bool IsValid() const { return Id != 0; }
+	/** The server's vocabulary, verbatim: TOURNAMENT_STATUSES is
+	 * ("in_progress", "eliminated", "completed"). Inventing near-miss names
+	 * here made the client silently ignore every live bracket. */
+	bool IsRunning() const { return Status == TEXT("in_progress"); }
+	bool IsComplete() const
+	{
+		return Status == TEXT("completed") || Status == TEXT("eliminated");
+	}
+};
+
+/** backend TournamentResultOut — the server's verdict on a round. */
+USTRUCT(BlueprintType)
+struct WORLDSPORTS_API FWSTournamentResultDto
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") bool accepted = false;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") FString rejection_reason;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") FString round;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") int32 position = 0;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") bool advanced = false;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") FString tournament_status;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") int32 final_position = 0;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") bool is_personal_best = false;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") int32 xp_awarded = 0;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") int32 total_xp = 0;
+};
+
 USTRUCT(BlueprintType)
 struct WORLDSPORTS_API FWSEventCatalogueEntry
 {

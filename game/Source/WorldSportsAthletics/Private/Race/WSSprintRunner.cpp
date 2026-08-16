@@ -94,8 +94,39 @@ void AWSSprintRunner::PushTrace(const TArray<FWSSprintInputEvent>& Trace)
 	}
 }
 
+void AWSSprintRunner::SetScriptedFinish(double FinishTimeSeconds)
+{
+	ScriptedFinishSeconds = FMath::Max(FinishTimeSeconds, 0.01);
+	ScriptedOutcome = FWSSprintOutcome();
+	ScriptedOutcome.TimeSeconds = ScriptedFinishSeconds;
+	// A rival's reaction is not modelled; reporting a made-up one would be
+	// inventing detail the server never sent.
+	ScriptedOutcome.ReactionMs = 0.0;
+	ScriptedState = FWSSprintState();
+}
+
 void AWSSprintRunner::AdvanceTo(double RaceTime)
 {
+	if (ScriptedFinishSeconds > 0.0)
+	{
+		// Smooth acceleration to the server's time: the finish is exact, the
+		// motion in between is presentation only.
+		const double Clamped = FMath::Clamp(RaceTime, 0.0, ScriptedFinishSeconds);
+		const double Alpha = Clamped / ScriptedFinishSeconds;
+		// Ease-out so the runner is quick off the line and holds speed,
+		// rather than gliding at a constant rate.
+		const double Eased = 1.0 - FMath::Pow(1.0 - Alpha, 1.35);
+		ScriptedState.RaceTime = RaceTime;
+		ScriptedState.Distance = Eased * FWSSprintSimulation::RaceDistance;
+		ScriptedState.Speed = RaceTime > 0.0 && RaceTime < ScriptedFinishSeconds
+			? FWSSprintSimulation::RaceDistance / ScriptedFinishSeconds
+			: 0.0;
+		ScriptedState.bReleased = RaceTime > 0.0;
+		ScriptedState.bFinished = RaceTime >= ScriptedFinishSeconds;
+		ScriptedOutcome.bFinished = ScriptedState.bFinished;
+		UpdateVisual(RaceTime);
+		return;
+	}
 	if (!Simulation.IsValid())
 	{
 		return;

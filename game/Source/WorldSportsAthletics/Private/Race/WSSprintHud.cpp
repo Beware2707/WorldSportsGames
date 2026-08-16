@@ -242,6 +242,11 @@ public:
 					]
 					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
 					[
+						MenuButton(LOCTEXT("Tournament", "Tournament"),
+							FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnTournament))
+					]
+					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
+					[
 						MenuButton(LOCTEXT("Leaderboard", "Leaderboard"),
 							FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnLeaderboard))
 					]
@@ -558,6 +563,59 @@ public:
 							[
 								MenuButton(LOCTEXT("BackCareer", "Back"),
 									FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnCareer), 200.0f)
+							]
+						]
+					]
+				]
+
+				// Tournament: the bracket, the current draw, the next round
+				+ SOverlay::Slot()
+				.HAlign(HAlign_Center).VAlign(VAlign_Center)
+				[
+					SNew(SBox).WidthOverride(760.0f).HeightOverride(600.0f)
+					.Visibility(this, &SWSSprintHudPanel::GetTournamentVisibility)
+					[
+						SNew(SVerticalBox)
+						+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 8)
+						[
+							SNew(STextBlock).Font(Font(30, true))
+							.ColorAndOpacity(FLinearColor::White)
+							.Text(LOCTEXT("TournamentTitle", "Tournament"))
+						]
+						+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 8)
+						[
+							SNew(STextBlock).Font(Font(16))
+							.ColorAndOpacity(FLinearColor(0.85f, 0.9f, 1.0f))
+							.AutoWrapText(true)
+							.Text(this, &SWSSprintHudPanel::GetTournamentStatus)
+						]
+						+ SVerticalBox::Slot().FillHeight(1.0f)
+						[
+							SNew(SScrollBox)
+							+ SScrollBox::Slot()
+							[
+								SNew(STextBlock).Font(Font(17))
+								.ColorAndOpacity(FLinearColor(0.9f, 0.9f, 0.92f))
+								.Text(this, &SWSSprintHudPanel::GetTournamentSummary)
+							]
+						]
+						+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0, 10, 0, 0)
+						[
+							SNew(SHorizontalBox)
+							+ SHorizontalBox::Slot().AutoWidth()
+							[
+								MenuButton(LOCTEXT("EnterTourney", "Enter"),
+									FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnEnterTournament), 200.0f)
+							]
+							+ SHorizontalBox::Slot().AutoWidth().Padding(8, 0)
+							[
+								MenuButton(LOCTEXT("RaceRound", "Race round"),
+									FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnRaceRound), 240.0f)
+							]
+							+ SHorizontalBox::Slot().AutoWidth()
+							[
+								MenuButton(LOCTEXT("BackT", "Back"),
+									FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnBackToMenu), 180.0f)
 							]
 						]
 					]
@@ -1157,17 +1215,43 @@ private:
 		return GameModePtr ? FText::FromString(GameModePtr->GetDrillResult()) : FText::GetEmpty();
 	}
 
-	FReply OnCareer()
+	FReply OnCareer() { return Show(EWSAppState::Career); }
+
+	FReply OnShowCreateAthlete() { return Show(EWSAppState::CreateAthlete); }
+
+	EVisibility GetTournamentVisibility() const { return VisibleWhen(EWSAppState::Tournament); }
+
+	FText GetTournamentStatus() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		return GameModePtr ? FText::FromString(GameModePtr->GetTournamentStatus()) : FText::GetEmpty();
+	}
+
+	FText GetTournamentSummary() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		return GameModePtr ? FText::FromString(GameModePtr->GetTournamentSummary()) : FText::GetEmpty();
+	}
+
+	FReply OnTournament() { return Show(EWSAppState::Tournament); }
+
+	FReply OnEnterTournament()
 	{
 		if (AWSSprintGameMode* GameModePtr = Mode())
 		{
-			GameModePtr->ShowScreen(EWSAppState::Career);
-			GameModePtr->RefreshCareer();
+			GameModePtr->EnterTournament();
 		}
 		return FReply::Handled();
 	}
 
-	FReply OnShowCreateAthlete() { return Show(EWSAppState::CreateAthlete); }
+	FReply OnRaceRound()
+	{
+		if (AWSSprintGameMode* GameModePtr = Mode())
+		{
+			GameModePtr->RaceTournamentRound();
+		}
+		return FReply::Handled();
+	}
 
 	FReply OnTrain()
 	{

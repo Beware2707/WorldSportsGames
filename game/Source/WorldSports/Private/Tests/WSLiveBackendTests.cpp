@@ -3,6 +3,7 @@
 #include "Misc/AutomationTest.h"
 #include "Online/WSOnlineSubsystem.h"
 #include "Progression/WSProgressionSubsystem.h"
+#include "Progression/WSTournamentSubsystem.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -251,6 +252,225 @@ bool FWSLiveCareerLoopTest::RunTest(const FString&)
 		});
 
 	ADD_LATENT_AUTOMATION_COMMAND(FWSWaitForCareer(State, GameInstance, this));
+	return true;
+}
+
+/**
+ * Live tournament: enter a bracket and race rounds until the server says
+ * the tournament is over. Proves the CLIENT never decides advancement —
+ * every position and every "advanced" flag comes back from the server,
+ * scored against the field it stored before the round was run.
+ */
+
+namespace WSLiveTest
+{
+struct FBracketState
+{
+	bool bDone = false;
+	bool bOk = false;
+	FString Error;
+	int32 RoundsRun = 0;
+	TArray<FString> RoundNames;
+	TArray<int32> FieldSizes;
+	FString FinalStatus;
+	int32 FinalPosition = 0;
+};
+}
+
+DEFINE_LATENT_AUTOMATION_COMMAND_THREE_PARAMETER(FWSWaitForBracket,
+	TSharedPtr<WSLiveTest::FBracketState>, State, UGameInstance*, GameInstance,
+	FAutomationTestBase*, Test);
+
+bool FWSWaitForBracket::Update()
+{
+	constexpr double TimeoutSeconds = 90.0;
+	if (!State->bDone && GetCurrentRunTime() < TimeoutSeconds)
+	{
+		return false;
+	}
+	if (!State->bDone)
+	{
+		Test->AddError(FString::Printf(
+			TEXT("Timed out after %d round(s) — backend reachable?"), State->RoundsRun));
+	}
+	else if (!State->bOk)
+	{
+		Test->AddError(FString::Printf(TEXT("Bracket failed: %s"), *State->Error));
+	}
+	else
+	{
+		Test->TestTrue(TEXT("at least one round was run"), State->RoundsRun >= 1);
+		// Every round the server accepted came with a stored field.
+		for (int32 Index = 0; Index < State->FieldSizes.Num(); ++Index)
+		{
+			Test->TestTrue(FString::Printf(TEXT("round %s had a field"),
+					*State->RoundNames[Index]),
+				State->FieldSizes[Index] > 0);
+		}
+		// The bracket ends in exactly one of the server's terminal states.
+		Test->TestTrue(FString::Printf(TEXT("terminal status '%s'"), *State->FinalStatus),
+			State->FinalStatus == TEXT("completed") ||
+			State->FinalStatus == TEXT("eliminated"));
+		// A final position exists ONLY for a completed final. Being knocked
+		// out in the semifinal has no final placing, and asserting one was
+		// this test inventing a rule the sport does not have.
+		if (State->FinalStatus == TEXT("completed"))
+		{
+			Test->TestTrue(TEXT("a completed final has a position"),
+				State->FinalPosition >= 1 && State->FinalPosition <= 8);
+		}
+		else
+		{
+			Test->TestEqual(TEXT("elimination has no final position"),
+				State->FinalPosition, 0);
+		}
+		// Rounds must run in the server's order, never skipped.
+		static const TCHAR* Order[] = {TEXT("qualification"), TEXT("heat"),
+			TEXT("semifinal"), TEXT("final")};
+		for (int32 Index = 0; Index < State->RoundNames.Num(); ++Index)
+		{
+			Test->TestEqual(TEXT("rounds run in bracket order"),
+				State->RoundNames[Index], FString(Order[Index]));
+		}
+	}
+	GameInstance->Shutdown();
+	GameInstance->RemoveFromRoot();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSLiveTournamentTest,
+	"LiveBackend.TournamentBracket",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+bool FWSLiveTournamentTest::RunTest(const FString&)
+{
+	UGameInstance* GameInstance = NewObject<UGameInstance>(GEngine);
+	GameInstance->AddToRoot();
+	GameInstance->InitializeStandalone();
+
+	UWSOnlineSubsystem* Online = GameInstance->GetSubsystem<UWSOnlineSubsystem>();
+	UWSTournamentSubsystem* Tournaments =
+		GameInstance->GetSubsystem<UWSTournamentSubsystem>();
+	if (!Online || !Tournaments)
+	{
+		GameInstance->RemoveFromRoot();
+		AddError(TEXT("Subsystems missing"));
+		return false;
+	}
+
+	TSharedPtr<WSLiveTest::FBracketState> State = MakeShared<WSLiveTest::FBracketState>();
+	const FString Email = TEXT("unreal-smoke@example.com");
+	const FString Password = TEXT("unreal-smoke-pass-1");
+
+	// One honest run, reused for each round: a mid-pack 12.4s that the
+	// server's validation accepts for a default-attribute athlete.
+	auto MakeRun = []
+	{
+		FWSEventResult Result;
+		Result.EventCode = TEXT("sprint-100m");
+		Result.ValueNum = 12.4;
+		Result.bHasReactionMs = true;
+		Result.ReactionMs = 165.0;
+		Result.bHasWind = true;
+		Result.Wind = 0.4;
+		const double Split = (12.4 - 0.165) / 10.0;
+		for (int32 Index = 0; Index < 10; ++Index)
+		{
+			Result.Splits.Add(FMath::RoundToDouble(Split * 10000.0) / 10000.0);
+		}
+		return Result;
+	};
+
+	// Declared first so the lambda can recurse through the shared pointer.
+	TSharedPtr<TFunction<void()>> RaceNext = MakeShared<TFunction<void()>>();
+	*RaceNext = [State, Tournaments, MakeRun, RaceNext]()
+	{
+		if (!Tournaments->HasActiveTournament())
+		{
+			State->FinalStatus = Tournaments->GetActive().Status;
+			State->FinalPosition = Tournaments->GetActive().FinalPosition;
+			State->bOk = true;
+			State->bDone = true;
+			return;
+		}
+		if (State->RoundsRun >= 6) // ROUND_ORDER is 4 long; 6 is a safety net
+		{
+			State->Error = TEXT("bracket did not terminate");
+			State->bDone = true;
+			return;
+		}
+		State->RoundNames.Add(Tournaments->GetActive().CurrentRound);
+		State->FieldSizes.Add(Tournaments->GetCurrentField().Num());
+
+		Tournaments->SubmitRound(MakeRun(),
+			[State, Tournaments, RaceNext](bool bOk, const FWSTournamentResultDto& Response,
+				const FString& Error)
+			{
+				if (!bOk)
+				{
+					State->Error = Error;
+					State->bDone = true;
+					return;
+				}
+				if (!Response.accepted)
+				{
+					State->Error = FString::Printf(TEXT("round rejected: %s"),
+						*Response.rejection_reason);
+					State->bDone = true;
+					return;
+				}
+				++State->RoundsRun;
+				if (Response.tournament_status == TEXT("complete") ||
+					Response.tournament_status == TEXT("eliminated"))
+				{
+					State->FinalStatus = Response.tournament_status;
+					State->FinalPosition = Response.final_position;
+					State->bOk = true;
+					State->bDone = true;
+					return;
+				}
+				// The next round's field is the server's, so re-read before
+				// racing it.
+				Tournaments->Refresh([RaceNext](bool, const FString&)
+				{
+					(*RaceNext)();
+				});
+			});
+	};
+
+	Online->RegisterAccount(Email, Password, TEXT("Unreal Smoke"),
+		[Online, Tournaments, State, Email, Password, RaceNext](
+			bool bOk, const FWSUserDto&, const FString& Error)
+		{
+			auto AfterAuth = [Tournaments, State, RaceNext](bool bAuthOk,
+				const FWSUserDto&, const FString& AuthError)
+			{
+				if (!bAuthOk)
+				{
+					State->Error = AuthError;
+					State->bDone = true;
+					return;
+				}
+				Tournaments->EnterOrResume(TEXT("sprint-100m"),
+					[State, RaceNext](bool bEntered, const FString& EnterError)
+					{
+						if (!bEntered)
+						{
+							State->Error = EnterError;
+							State->bDone = true;
+							return;
+						}
+						(*RaceNext)();
+					});
+			};
+			if (!bOk && Error.Contains(TEXT("already exists")))
+			{
+				Online->Login(Email, Password, AfterAuth);
+				return;
+			}
+			AfterAuth(bOk, FWSUserDto(), Error);
+		});
+
+	ADD_LATENT_AUTOMATION_COMMAND(FWSWaitForBracket(State, GameInstance, this));
 	return true;
 }
 
