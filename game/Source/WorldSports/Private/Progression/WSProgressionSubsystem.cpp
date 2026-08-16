@@ -7,8 +7,8 @@
 
 namespace
 {
-const TCHAR* AthletePath = TEXT("/api/v1/career/athlete");
-const TCHAR* TrainingPath = TEXT("/api/v1/career/training");
+const TCHAR* CareerAthletePath = TEXT("/api/v1/career/athlete");
+const TCHAR* CareerTrainingPath = TEXT("/api/v1/career/training");
 }
 
 void UWSProgressionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -71,7 +71,7 @@ void UWSProgressionSubsystem::RefreshCareerAthlete(
 	}
 
 	TWeakObjectPtr<UWSProgressionSubsystem> WeakThis(this);
-	OnlineSubsystem->Request(TEXT("GET"), AthletePath, nullptr,
+	OnlineSubsystem->Request(TEXT("GET"), CareerAthletePath, nullptr,
 		[WeakThis, Callback](const FWSHttpResult& Result)
 		{
 			UWSProgressionSubsystem* Self = WeakThis.Get();
@@ -153,7 +153,7 @@ void UWSProgressionSubsystem::CreateCareerAthlete(const FString& Name, const FSt
 	Body->SetStringField(TEXT("gender"), Gender);
 
 	TWeakObjectPtr<UWSProgressionSubsystem> WeakThis(this);
-	OnlineSubsystem->Request(TEXT("POST"), AthletePath, Body,
+	OnlineSubsystem->Request(TEXT("POST"), CareerAthletePath, Body,
 		[WeakThis, Callback](const FWSHttpResult& Result)
 		{
 			UWSProgressionSubsystem* Self = WeakThis.Get();
@@ -206,7 +206,7 @@ void UWSProgressionSubsystem::SubmitTraining(const FString& Drill, double Metric
 		FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
 
 	TWeakObjectPtr<UWSProgressionSubsystem> WeakThis(this);
-	OnlineSubsystem->Request(TEXT("POST"), TrainingPath, Body,
+	OnlineSubsystem->Request(TEXT("POST"), CareerTrainingPath, Body,
 		[WeakThis, Callback](const FWSHttpResult& Result)
 		{
 			UWSProgressionSubsystem* Self = WeakThis.Get();
