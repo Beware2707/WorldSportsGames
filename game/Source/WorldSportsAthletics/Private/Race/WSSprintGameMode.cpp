@@ -15,6 +15,7 @@
 #include "Math/RandomStream.h"
 #include "Race/WSSprintTrack.h"
 #include "Simulation/WSSprintDifficulty.h"
+#include "Simulation/WSSprintEvents.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Sports/Results/WSEventResult.h"
@@ -25,7 +26,7 @@ namespace
 constexpr double MinSetSeconds = 2.2;
 constexpr double MaxSetSeconds = 4.6;
 constexpr float ResultDwellSeconds = 1.2f;
-const TCHAR* SprintEventCode = TEXT("sprint-100m");
+const TCHAR* DefaultEventCode = TEXT("sprint-100m");
 
 const TCHAR* OpponentNames[] = {
 	TEXT("A. Mensah"), TEXT("K. Ito"), TEXT("L. Duarte"), TEXT("R. Novak"),
@@ -209,7 +210,9 @@ void AWSSprintGameMode::RefreshLeaderboard()
 
 	TWeakObjectPtr<AWSSprintGameMode> WeakThis(this);
 	Online->Request(TEXT("GET"),
-		TEXT("/api/v1/career/leaderboard?event=sprint-100m&scope=global&period=all_time"),
+		FString::Printf(
+			TEXT("/api/v1/career/leaderboard?event=%s&scope=global&period=all_time"),
+			*CurrentEvent().Code),
 		nullptr,
 		[WeakThis](const FWSHttpResult& Result)
 		{
@@ -415,6 +418,50 @@ FString AWSSprintGameMode::GetCareerSummary() const
 
 // -- Tournament ----------------------------------------------------------
 
+const FWSSprintEventSpec& AWSSprintGameMode::CurrentEvent() const
+{
+	return WSSprintEvents::Find(SelectedEventCode.IsEmpty()
+		? FString(DefaultEventCode) : SelectedEventCode);
+}
+
+void AWSSprintGameMode::CycleEvent(int32 Delta)
+{
+	// Changing event mid-race would leave the runners simulating one
+	// distance while the finish line moved to another.
+	if (bRaceRunning)
+	{
+		return;
+	}
+	const TArray<FWSSprintEventSpec>& Table = WSSprintEvents::All();
+	int32 Index = 0;
+	for (int32 I = 0; I < Table.Num(); ++I)
+	{
+		if (Table[I].Code == CurrentEvent().Code)
+		{
+			Index = I;
+			break;
+		}
+	}
+	Index = (Index + Delta % Table.Num() + Table.Num()) % Table.Num();
+	SelectedEventCode = Table[Index].Code;
+	// The board on screen is for the event you were looking at, not the one
+	// you just switched to.
+	LeaderboardRows.Reset();
+	LeaderboardStatus = FString();
+}
+
+FString AWSSprintGameMode::GetSelectedEventName() const
+{
+	return CurrentEvent().DisplayName;
+}
+
+void AWSSprintGameMode::SelectEvent(const FString& EventCode)
+{
+	// Only events the table knows: an unknown code would race a distance the
+	// server cannot validate a time for.
+	SelectedEventCode = WSSprintEvents::Find(EventCode).Code;
+}
+
 UWSTournamentSubsystem* AWSSprintGameMode::Tournaments() const
 {
 	return GetGameInstance()
@@ -432,7 +479,7 @@ void AWSSprintGameMode::EnterTournament()
 	}
 	TournamentStatus = TEXT("Entering…");
 	TWeakObjectPtr<AWSSprintGameMode> WeakThis(this);
-	T->EnterOrResume(SprintEventCode, [WeakThis](bool bOk, const FString& Error)
+	T->EnterOrResume(CurrentEvent().Code, [WeakThis](bool bOk, const FString& Error)
 	{
 		if (AWSSprintGameMode* Self = WeakThis.Get())
 		{
@@ -532,7 +579,7 @@ void AWSSprintGameMode::SubmitTournamentRound()
 	}
 
 	FWSEventResult Result;
-	Result.EventCode = SprintEventCode;
+	Result.EventCode = CurrentEvent().Code;
 	Result.ValueNum = Outcome.TimeSeconds;
 	Result.bHasReactionMs = true;
 	Result.ReactionMs = Outcome.ReactionMs;
@@ -769,7 +816,7 @@ void AWSSprintGameMode::SpawnField()
 		if (Lane == PlayerLane)
 		{
 			Runner->InitializeRace(ResolvePlayerAttributes(), RaceSeed, Lane,
-				TEXT("You"), /*bIsPlayer=*/true);
+				TEXT("You"), /*bIsPlayer=*/true, CurrentEvent());
 			PlayerRunner = Runner;
 		}
 		else
@@ -784,10 +831,10 @@ void AWSSprintGameMode::SpawnField()
 			const uint32 InputSeed = RaceSeed + 1013u * (OpponentIndex + 1);
 			Runner->InitializeRace(Attributes, RaceSeed, Lane,
 				OpponentNames[OpponentIndex % UE_ARRAY_COUNT(OpponentNames)],
-				/*bIsPlayer=*/false);
+				/*bIsPlayer=*/false, CurrentEvent());
 			Runner->PushTrace(FWSSprintSimulation::GenerateAITrace(
 				Attributes, RaceSeed, InputSeed, Level.ReactionMeanMs,
-				Level.ReactionSpreadMs, Level.Consistency));
+				Level.ReactionSpreadMs, Level.Consistency, CurrentEvent()));
 			++OpponentIndex;
 		}
 		Runners.Add(Runner);
@@ -805,6 +852,7 @@ FWSSprintAttributes AWSSprintGameMode::ResolvePlayerAttributes() const
 	Attributes.MaxSpeed = 40.0f;
 	Attributes.StrideEfficiency = 40.0f;
 	Attributes.Stamina = 40.0f;
+	Attributes.Recovery = 40.0f;
 	Attributes.Technique = 40.0f;
 
 	// Signed in with a career athlete: race with the SERVER's attributes.
@@ -833,6 +881,9 @@ FWSSprintAttributes AWSSprintGameMode::ResolvePlayerAttributes() const
 	Read(TEXT("max_speed"), Attributes.MaxSpeed);
 	Read(TEXT("stride_efficiency"), Attributes.StrideEfficiency);
 	Read(TEXT("stamina"), Attributes.Stamina);
+	// recovery governs the 400m on the SERVER, so it must reach the client
+	// simulation or the two disagree about that event's ceiling.
+	Read(TEXT("recovery"), Attributes.Recovery);
 	Read(TEXT("technique"), Attributes.Technique);
 	return Attributes;
 }
@@ -1215,7 +1266,7 @@ void AWSSprintGameMode::SubmitPlayerResult()
 	}
 
 	FWSEventResult Result;
-	Result.EventCode = SprintEventCode;
+	Result.EventCode = CurrentEvent().Code;
 	Result.ValueNum = Outcome.TimeSeconds;
 	Result.bHasReactionMs = true;
 	Result.ReactionMs = Outcome.ReactionMs;

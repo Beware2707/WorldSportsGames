@@ -24,6 +24,7 @@ struct WORLDSPORTSATHLETICS_API FWSSprintDifficultyLevel
 		Attributes.MaxSpeed = AttributeLevel;
 		Attributes.StrideEfficiency = AttributeLevel;
 		Attributes.Stamina = AttributeLevel;
+		Attributes.Recovery = AttributeLevel;
 		Attributes.Technique = AttributeLevel;
 		return Attributes;
 	}

@@ -4,6 +4,7 @@
 #include "Framework/WSEventGameMode.h"
 #include "Online/WSOnlineSubsystem.h"
 #include "Race/WSSprintAudio.h"
+#include "Simulation/WSSprintEvents.h"
 #include "Simulation/WSSprintSimulation.h"
 
 #include "WSSprintGameMode.generated.h"
@@ -55,9 +56,10 @@ struct WORLDSPORTSATHLETICS_API FWSRaceStanding
 };
 
 /**
- * The 100m race. Sprint-specific ONLY in its input handling and camera
- * choreography; everything else runs on the sport-agnostic phase machine
- * in AWSEventGameMode, which is what lets the 200m be data.
+ * A timed sprint race — 100m, 200m or 400m, chosen from the event table.
+ * Sprint-specific ONLY in its input handling and camera choreography;
+ * everything else runs on the sport-agnostic phase machine in
+ * AWSEventGameMode, which is what lets each event be data.
  *
  * Race clock: negative before the gun (Set phase), 0.0 at the gun. Every
  * runner — player and AI alike — advances through its own simulation
@@ -83,6 +85,20 @@ public:
 	void PlayerPress();
 	void PlayerRelease();
 	void PlayerLean();
+
+	/** The event this race runs. Data, from the WSSprintEvents table. */
+	const FWSSprintEventSpec& CurrentEvent() const;
+
+	/** Choose the event to race (menu / career selection). */
+	UFUNCTION(BlueprintCallable, Category = "Race")
+	void SelectEvent(const FString& EventCode);
+
+	UFUNCTION(BlueprintPure, Category = "Race")
+	FString GetSelectedEventName() const;
+
+	/** Step through the event table (wraps). Delta is +1 / -1. */
+	UFUNCTION(BlueprintCallable, Category = "Race")
+	void CycleEvent(int32 Delta);
 
 	/** Start (or restart) a race. Safe to call from the result screen. */
 	UFUNCTION(BlueprintCallable, Category = "Race")
@@ -119,8 +135,8 @@ public:
 
 	// -- Leaderboard -----------------------------------------------------
 
-	/** Fetch the global 100m board. Anonymous is fine — the server allows
-	 * the global scope without a token. */
+	/** Fetch the global board for the SELECTED event. Anonymous is fine —
+	 * the server allows the global scope without a token. */
 	UFUNCTION(BlueprintCallable, Category = "Race")
 	void RefreshLeaderboard();
 
@@ -172,7 +188,8 @@ public:
 
 	// -- Tournament ------------------------------------------------------
 
-	/** Enter (or resume) a 100m tournament and show the bracket. */
+	/** Enter (or resume) a tournament in the selected event, and show the
+	 * bracket. */
 	UFUNCTION(BlueprintCallable, Category = "Race")
 	void EnterTournament();
 
@@ -225,6 +242,8 @@ public:
 	UFUNCTION(Exec) void WSTournament() { ShowScreen(EWSAppState::Tournament); }
 	UFUNCTION(Exec) void WSEnterTournament() { EnterTournament(); }
 	UFUNCTION(Exec) void WSRaceRound() { RaceTournamentRound(); }
+	UFUNCTION(Exec) void WSNextEvent() { CycleEvent(1); }
+	UFUNCTION(Exec) void WSSelectEvent(const FString& EventCode) { SelectEvent(EventCode); }
 	/** Reports the live race/app state into the log, for adb logcat. */
 	UFUNCTION(Exec) void WSStatus();
 
@@ -234,6 +253,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Race")
 	AWSSprintRunner* GetPlayerRunner() const { return PlayerRunner; }
+
+	/** The whole field, player included. */
+	const TArray<TObjectPtr<AWSSprintRunner>>& GetRunners() const { return Runners; }
 
 	UFUNCTION(BlueprintPure, Category = "Race")
 	int32 GetPlayerPosition() const;
@@ -325,6 +347,8 @@ private:
 	FString CareerStatus;
 	FString RecordsText;
 	FString TournamentStatus;
+	/** Empty means the default event (the 100m). */
+	FString SelectedEventCode;
 	/** True while the current race belongs to a tournament round: its result
 	 * goes to the bracket endpoint, which scores it against the field the
 	 * server stored BEFORE the race. */

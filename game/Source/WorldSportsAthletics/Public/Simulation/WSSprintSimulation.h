@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Simulation/WSSprintEvents.h"
 
 #include "WSSprintSimulation.generated.h"
 
@@ -59,24 +60,25 @@ struct WORLDSPORTSATHLETICS_API FWSSprintAttributes
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sprint") float MaxSpeed = 40.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sprint") float StrideEfficiency = 40.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sprint") float Stamina = 40.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sprint") float Recovery = 40.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sprint") float Technique = 40.0f;
 
+	/** Look up one attribute by the backend's key. */
+	float ByKey(FName Key) const;
+
 	/**
-	 * Mean of the server's governing attributes for the 100m — the exact
-	 * input its ceiling formula uses (backend services/career.py:
-	 * attribute_ceiling over ("reaction", "acceleration", "max_speed",
-	 * "stride_efficiency", "stamina")).
+	 * Mean of the attributes the SERVER averages for this event — the exact
+	 * input its ceiling formula uses (backend services/career.py
+	 * attribute_ceiling over the event's governing_attributes).
 	 *
 	 * Top speed is derived from THIS mean rather than from MaxSpeed alone.
 	 * Otherwise a lopsided athlete — max_speed 90, everything else 40 —
 	 * simulates faster than the mean-based ceiling permits, and an honestly
 	 * run race comes back rejected, which reads to the player as the game
-	 * calling them a cheat.
+	 * calling them a cheat. The governing SET is per event (the 400m counts
+	 * recovery, the 100m does not), so it is passed in rather than assumed.
 	 */
-	double GoverningMean() const
-	{
-		return (Reaction + Acceleration + MaxSpeed + StrideEfficiency + Stamina) / 5.0;
-	}
+	double GoverningMean(const TArray<FName>& GoverningAttributes) const;
 };
 
 /** Live state, stepped at a fixed rate; also the HUD's data source. */
@@ -118,10 +120,15 @@ class WORLDSPORTSATHLETICS_API FWSSprintSimulation
 public:
 	static constexpr double StepHz = 120.0;
 	static constexpr double StepDt = 1.0 / StepHz;
-	static constexpr double RaceDistance = 100.0;
 	static constexpr double FalseStartFloorMs = 100.0; // mirrors the server
 
+	/** The 100m, for callers that predate multiple events. */
 	FWSSprintSimulation(const FWSSprintAttributes& InAttributes, uint32 InSeed);
+	FWSSprintSimulation(const FWSSprintAttributes& InAttributes, uint32 InSeed,
+		const FWSSprintEventSpec& InEvent);
+
+	const FWSSprintEventSpec& GetEvent() const { return EventSpec; }
+	double GetRaceDistance() const { return EventSpec.DistanceMetres; }
 
 	/** Wind for this race, from the seed. Legal range biased: [-1.5, +2.0]. */
 	double GetWind() const { return Wind; }
@@ -138,6 +145,9 @@ public:
 	/** Run to completion against a full input trace (server replay, AI, tests). */
 	static FWSSprintOutcome RunTrace(const FWSSprintAttributes& Attributes,
 		uint32 Seed, const TArray<FWSSprintInputEvent>& Trace);
+	static FWSSprintOutcome RunTrace(const FWSSprintAttributes& Attributes,
+		uint32 Seed, const TArray<FWSSprintInputEvent>& Trace,
+		const FWSSprintEventSpec& InEventSpec);
 
 	/** Deterministic digest of an input trace (audit breadcrumb). */
 	static FString DigestTrace(const TArray<FWSSprintInputEvent>& Trace);
@@ -153,6 +163,10 @@ public:
 	static TArray<FWSSprintInputEvent> GenerateAITrace(
 		const FWSSprintAttributes& Attributes, uint32 RaceSeed, uint32 InputSeed,
 		double ReactionMeanMs, double ReactionSpreadMs, double Consistency);
+	static TArray<FWSSprintInputEvent> GenerateAITrace(
+		const FWSSprintAttributes& Attributes, uint32 RaceSeed, uint32 InputSeed,
+		double ReactionMeanMs, double ReactionSpreadMs, double Consistency,
+		const FWSSprintEventSpec& InEventSpec);
 
 	const FWSSprintState& GetState() const { return State; }
 	FWSSprintOutcome GetOutcome() const { return Outcome; }
@@ -161,6 +175,7 @@ private:
 	void ApplyEvent(const FWSSprintInputEvent& Event);
 
 	FWSSprintAttributes Attributes;
+	FWSSprintEventSpec EventSpec;
 	FWSSprintState State;
 	FWSSprintOutcome Outcome;
 	double Wind = 0.0;
@@ -175,6 +190,6 @@ private:
 	bool bHeld = false;
 	bool bLeanUsed = false;
 	double LeanBonusMetres = 0.0;
-	int32 NextSplitMark = 1; // 10m marks 1..10
+	int32 NextSplitMark = 1; // segment marks 1..Event.SplitCount
 	double LastSplitTime = 0.0;
 };

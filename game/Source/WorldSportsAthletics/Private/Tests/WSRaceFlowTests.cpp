@@ -6,6 +6,7 @@
 #include "Race/WSSprintGameMode.h"
 #include "Race/WSSprintRunner.h"
 #include "Race/WSSprintTrack.h"
+#include "Simulation/WSSprintEvents.h"
 #include "Tests/AutomationCommon.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -167,6 +168,81 @@ bool FWSRaceFullLoopTest::RunTest(const FString&)
 	TestTrue(TEXT("reached Result or later"),
 		static_cast<int32>(Harness.GameMode->GetPhase()) >=
 		static_cast<int32>(EWSEventPhase::Result));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSRaceEventSelectionTest,
+	"WorldSports.Race.EveryEventRacesEndToEnd",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+bool FWSRaceEventSelectionTest::RunTest(const FString&)
+{
+	// The Phase 5 checkpoint, as a test: selecting the 200m or the 400m must
+	// produce a real race of THAT distance through the same game mode — no
+	// new code path, and no 100m leaking through in the distance, the split
+	// count, or the event code the result is filed under.
+	for (const FWSSprintEventSpec& Spec : WSSprintEvents::All())
+	{
+		FRaceHarness Harness(/*bStartRace=*/false);
+		if (!TestNotNull(TEXT("game mode spawned"), Harness.GameMode))
+		{
+			return false;
+		}
+		Harness.GameMode->SelectEvent(Spec.Code);
+		TestEqual(TEXT("event selected"), Harness.GameMode->CurrentEvent().Code, Spec.Code);
+		Harness.GameMode->StartQuickPlay();
+
+		bool bHeld = false;
+		bool bReleased = false;
+		double NextTapAt = 0.0;
+		// Long enough for a slow 400m, driven off the event's own distance
+		// rather than a constant that would quietly truncate the lap.
+		const double Budget = 30.0 + 0.9 * Spec.DistanceMetres;
+		Harness.RunFor(Budget, 1.0 / 60.0, [&](double Clock)
+		{
+			if (!bHeld && Clock > -2.0)
+			{
+				Harness.GameMode->PlayerPress();
+				bHeld = true;
+			}
+			if (!bReleased && Clock >= 0.17)
+			{
+				Harness.GameMode->PlayerRelease();
+				bReleased = true;
+				NextTapAt = Clock + 0.12;
+			}
+			if (bReleased)
+			{
+				PlayWell(Harness.GameMode, Clock, NextTapAt);
+			}
+		});
+
+		AWSSprintRunner* Player = Harness.GameMode->GetPlayerRunner();
+		if (!TestNotNull(TEXT("player runner exists"), Player))
+		{
+			return false;
+		}
+		TestTrue(FString::Printf(TEXT("%s: player finished"), *Spec.Code),
+			Player->HasFinished());
+
+		const FWSSprintOutcome Outcome = Player->GetOutcome();
+		TestEqual(FString::Printf(TEXT("%s: split count"), *Spec.Code),
+			Outcome.Splits.Num(), Spec.SplitCount);
+		TestTrue(FString::Printf(
+				TEXT("%s: time %.3f inside the server's plausible band"),
+				*Spec.Code, Outcome.TimeSeconds),
+			Outcome.TimeSeconds > Spec.MinPlausibleSeconds &&
+				Outcome.TimeSeconds < Spec.MaxPlausibleSeconds);
+
+		// The whole field ran the same distance — including the AI, which
+		// runs this simulation rather than being handed a finish time.
+		TestEqual(FString::Printf(TEXT("%s: full field"), *Spec.Code),
+			Harness.GameMode->GetStandings().Num(), AWSSprintTrack::LaneCount);
+		for (const AWSSprintRunner* Runner : Harness.GameMode->GetRunners())
+		{
+			TestEqual(FString::Printf(TEXT("%s: every runner ran the distance"), *Spec.Code),
+				Runner->GetRaceDistance(), Spec.DistanceMetres);
+		}
+	}
 	return true;
 }
 

@@ -49,11 +49,13 @@ AWSSprintRunner::AWSSprintRunner()
 }
 
 void AWSSprintRunner::InitializeRace(const FWSSprintAttributes& InAttributes,
-	uint32 Seed, int32 InLaneIndex, const FString& InDisplayName, bool bInIsPlayer)
+	uint32 Seed, int32 InLaneIndex, const FString& InDisplayName, bool bInIsPlayer,
+	const FWSSprintEventSpec& InEventSpec)
 {
-	// Every runner in a race shares the seed, so wind is the same for all —
-	// a race where opponents ran in different weather would be a lie.
-	Simulation = MakeShared<FWSSprintSimulation>(InAttributes, Seed);
+	// Every runner in a race shares the seed AND the event, so wind and
+	// distance are the same for all — a race where opponents ran a different
+	// distance, or in different weather, would be a lie.
+	Simulation = MakeShared<FWSSprintSimulation>(InAttributes, Seed, InEventSpec);
 	SimulatedTime = Simulation->GetState().RaceTime;
 	LaneIndex = InLaneIndex;
 	DisplayName = InDisplayName;
@@ -96,6 +98,10 @@ void AWSSprintRunner::PushTrace(const TArray<FWSSprintInputEvent>& Trace)
 
 void AWSSprintRunner::SetScriptedFinish(double FinishTimeSeconds)
 {
+	// The distance the scripted rival covers is the event's, not the 100m's.
+	ScriptedDistanceMetres = Simulation.IsValid()
+		? Simulation->GetRaceDistance()
+		: 100.0;
 	ScriptedFinishSeconds = FMath::Max(FinishTimeSeconds, 0.01);
 	ScriptedOutcome = FWSSprintOutcome();
 	ScriptedOutcome.TimeSeconds = ScriptedFinishSeconds;
@@ -117,9 +123,9 @@ void AWSSprintRunner::AdvanceTo(double RaceTime)
 		// rather than gliding at a constant rate.
 		const double Eased = 1.0 - FMath::Pow(1.0 - Alpha, 1.35);
 		ScriptedState.RaceTime = RaceTime;
-		ScriptedState.Distance = Eased * FWSSprintSimulation::RaceDistance;
+		ScriptedState.Distance = Eased * ScriptedDistanceMetres;
 		ScriptedState.Speed = RaceTime > 0.0 && RaceTime < ScriptedFinishSeconds
-			? FWSSprintSimulation::RaceDistance / ScriptedFinishSeconds
+			? ScriptedDistanceMetres / ScriptedFinishSeconds
 			: 0.0;
 		ScriptedState.bReleased = RaceTime > 0.0;
 		ScriptedState.bFinished = RaceTime >= ScriptedFinishSeconds;

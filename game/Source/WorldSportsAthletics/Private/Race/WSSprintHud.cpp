@@ -222,13 +222,40 @@ public:
 					[
 						SNew(STextBlock).Font(Font(44, true))
 						.ColorAndOpacity(FLinearColor::White)
-						.Text(LOCTEXT("Title", "100 METRES"))
+						.Text(this, &SWSSprintHudPanel::GetTitleText)
 					]
 					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0, 0, 0, 20)
 					[
 						SNew(STextBlock).Font(Font(16))
 						.ColorAndOpacity(FLinearColor(0.7f, 0.78f, 0.9f))
 						.Text(this, &SWSSprintHudPanel::GetAccountLine)
+					]
+					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot().AutoWidth()
+						[
+							MenuButton(LOCTEXT("PrevEvent", "◀"),
+								FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnPrevEvent),
+								86.0f)
+						]
+						+ SHorizontalBox::Slot().AutoWidth()
+						[
+							SNew(SBox).WidthOverride(208.0f).HeightOverride(72.0f)
+							.Padding(FMargin(0.0f, 6.0f))
+							.HAlign(HAlign_Center).VAlign(VAlign_Center)
+							[
+								SNew(STextBlock).Font(Font(26, true))
+								.ColorAndOpacity(FLinearColor::White)
+								.Text(this, &SWSSprintHudPanel::GetEventText)
+							]
+						]
+						+ SHorizontalBox::Slot().AutoWidth()
+						[
+							MenuButton(LOCTEXT("NextEvent", "▶"),
+								FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnNextEvent),
+								86.0f)
+						]
 					]
 					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
 					[
@@ -353,7 +380,7 @@ public:
 						[
 							SNew(STextBlock).Font(Font(30, true))
 							.ColorAndOpacity(FLinearColor::White)
-							.Text(LOCTEXT("BoardTitle", "100m · Global · All time"))
+							.Text(this, &SWSSprintHudPanel::GetBoardTitle)
 						]
 						+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 8)
 						[
@@ -1098,6 +1125,51 @@ private:
 	}
 
 	// -- Screen content --------------------------------------------------
+
+	FText GetBoardTitle() const
+	{
+		// Which board this is. Labelling every event's board "100m" would
+		// misreport whose times the player is reading.
+		AWSSprintGameMode* GameModePtr = Mode();
+		return GameModePtr
+			? FText::FromString(FString::Printf(TEXT("%s · Global · All time"),
+				*GameModePtr->GetSelectedEventName()))
+			: FText::GetEmpty();
+	}
+
+	FText GetTitleText() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		return GameModePtr
+			? FText::FromString(GameModePtr->GetSelectedEventName().ToUpper())
+			: FText::GetEmpty();
+	}
+
+	FText GetEventText() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		return GameModePtr
+			? FText::FromString(GameModePtr->GetSelectedEventName())
+			: FText::GetEmpty();
+	}
+
+	FReply OnPrevEvent()
+	{
+		if (AWSSprintGameMode* GameModePtr = Mode())
+		{
+			GameModePtr->CycleEvent(-1);
+		}
+		return FReply::Handled();
+	}
+
+	FReply OnNextEvent()
+	{
+		if (AWSSprintGameMode* GameModePtr = Mode())
+		{
+			GameModePtr->CycleEvent(1);
+		}
+		return FReply::Handled();
+	}
 
 	FText GetAccountLine() const
 	{

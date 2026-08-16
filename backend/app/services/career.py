@@ -67,6 +67,46 @@ EVENTS: dict[str, CareerEvent] = {
         requires_reaction=True,
         distance_m=100.0,
     ),
+    # Adding an event is a ROW, not a code change: validation, leaderboards,
+    # records, statistics and tournaments all read this table. The Unreal
+    # client mirrors it (WSSprintEvents.h) and must be kept in sync — an
+    # event the server does not know is an event it cannot validate.
+    "sprint-200m": CareerEvent(
+        code="sprint-200m",
+        name="200m Sprint",
+        value_kind="time",
+        lower_is_better=True,
+        min_plausible=19.0,
+        max_plausible=120.0,
+        governing_attributes=("reaction", "acceleration", "max_speed",
+                              "stride_efficiency", "stamina"),
+        ceiling_at_zero=28.0,
+        ceiling_at_hundred=19.30,
+        splits_expected=10,          # 20m segments
+        requires_reaction=True,
+        # No 20m segment is run faster than this.
+        min_split_seconds=1.55,
+        distance_m=200.0,
+    ),
+    "sprint-400m": CareerEvent(
+        code="sprint-400m",
+        name="400m",
+        value_kind="time",
+        lower_is_better=True,
+        min_plausible=42.5,
+        max_plausible=240.0,
+        # The one-lap event is where RECOVERY finally governs something.
+        # Until now it was an attribute a player could train for no effect,
+        # which the career screen had to apologise for.
+        governing_attributes=("reaction", "acceleration", "max_speed",
+                              "stamina", "recovery"),
+        ceiling_at_zero=64.0,
+        ceiling_at_hundred=43.20,
+        splits_expected=8,           # 50m segments
+        requires_reaction=True,
+        min_split_seconds=4.0,
+        distance_m=400.0,
+    ),
 }
 
 # Result submissions per athlete per minute. Nobody legitimately finishes

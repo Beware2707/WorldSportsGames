@@ -167,6 +167,61 @@ broadcast presentation reserved for finals.
 **Checkpoint:** if adding the 200m requires C++ changes, the sport framework is
 wrong and must be fixed *before* the remaining ~50 sports are built on it.
 
+### 6.1 Checkpoint result: FAILED, then fixed
+
+The framework **failed** the checkpoint. Adding the 200m was not a data change,
+because the running event was not data:
+
+| What was wrong | Where |
+|---|---|
+| Race distance was a compile-time constant | `FWSSprintSimulation::RaceDistance` |
+| Splits hardcoded to ten 10m marks | `WSSprintSimulation.cpp` |
+| Cadence curve keyed on absolute metres | `TargetCadenceAt` |
+| Event code was a literal at the submit site | `WSSprintGameMode.cpp` |
+| Race distance duplicated in the rival replay | `WSSprintRunner.cpp` |
+| Leaderboard URL hardcoded `sprint-100m` | `RefreshLeaderboard` |
+
+Fixed by making the event a row in a table (`WSSprintEvents.h/.cpp`,
+mirroring the backend's `EVENTS`). The cadence profile is now expressed in
+**fractions of the race** rather than metres, so one curve describes a 100m
+and a 400m. Adding the 400m after that was genuinely a row plus calibration
+constants — no new code path, no new branch.
+
+**Status: 200m and 400m playable, calibrated, and accepted by the live
+backend.** 29 offline automation tests and 4 live-backend tests green.
+
+### 6.2 What the calibration work found
+
+Two defects that only a per-event ceiling sweep could surface:
+
+1. **`recovery` never reached the simulation.** The backend counts it among
+   the 400m's governing attributes; `FWSSprintAttributes` had no such field
+   and `ByKey` silently returned 40. The client and server therefore computed
+   *different* means for the same athlete, so the ceiling shown to the player
+   was not the one the race ran against. `ByKey` now `ensure`s on an unknown
+   key rather than inventing a number.
+2. **A lopsided athlete could beat the server's ceiling.** The ceiling is a
+   function of the governing *mean*, but the simulation let a single attribute
+   (stamina, via the fatigue term) buy speed beyond it — an honest run the
+   validator then rejects. Every per-attribute effect is now capped at the
+   governing mean, which makes "no attribute beats the ceiling" structural
+   rather than a constant to be re-tuned. Training is still rewarded: every
+   governing attribute raises the mean itself.
+
+The calibration tests sweep **32 seeds per attribute level** and play at the
+fastest legal reaction (101ms), because wind is seeded and worth more than a
+second over 400m — a three-seed sample passed while the strongest legal
+tailwind sailed under the ceiling.
+
+### 6.3 Deliberately still open
+
+- **The 200m and 400m are run on a straight track.** Bends need track
+  geometry, lane-stagger and a camera that follows a curve; the simulation is
+  distance-correct but the presentation is not yet event-correct.
+- **`recovery` counts toward the 400m ceiling but has no distinct simulated
+  effect** beyond the mean. It should govern how fatigue *clears*, which needs
+  a between-rounds model that does not exist yet.
+
 ## 7. Phases 6–11
 
 Aquatics → remaining summer sports → winter sports → online competition →

@@ -24,7 +24,8 @@ public:
 
 	/** Create this runner's simulation. Call before the race starts. */
 	void InitializeRace(const FWSSprintAttributes& InAttributes, uint32 Seed,
-		int32 InLaneIndex, const FString& InDisplayName, bool bInIsPlayer);
+		int32 InLaneIndex, const FString& InDisplayName, bool bInIsPlayer,
+		const FWSSprintEventSpec& InEventSpec);
 
 	/** Queue an input event (player taps, or a pre-generated AI trace). */
 	void PushInput(const FWSSprintInputEvent& Event);
@@ -43,6 +44,12 @@ public:
 	void SetScriptedFinish(double FinishTimeSeconds);
 
 	bool IsScripted() const { return ScriptedFinishSeconds > 0.0; }
+
+	/** The distance this runner is racing, in metres. */
+	double GetRaceDistance() const
+	{
+		return Simulation.IsValid() ? Simulation->GetRaceDistance() : ScriptedDistanceMetres;
+	}
 
 	/** Advance the simulation to RaceTime and update the visual. */
 	void AdvanceTo(double RaceTime);
@@ -84,6 +91,7 @@ private:
 	double StridePhase = 0.0;
 	/** >0 when this runner replays a server-decided finish time. */
 	double ScriptedFinishSeconds = 0.0;
+	double ScriptedDistanceMetres = 100.0;
 	FWSSprintOutcome ScriptedOutcome;
 	FWSSprintState ScriptedState;
 };

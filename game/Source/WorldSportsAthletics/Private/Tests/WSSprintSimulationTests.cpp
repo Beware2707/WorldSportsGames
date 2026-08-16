@@ -1,5 +1,6 @@
 #include "Misc/AutomationTest.h"
 #include "Simulation/WSSprintDifficulty.h"
+#include "Simulation/WSSprintEvents.h"
 #include "Simulation/WSSprintSimulation.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -14,20 +15,39 @@ FWSSprintAttributes UniformAttributes(float Level)
 	Attributes.MaxSpeed = Level;
 	Attributes.StrideEfficiency = Level;
 	Attributes.Stamina = Level;
+	// Recovery too, or the 400m's governing mean sits below the level being
+	// asserted and every margin on that event is measured against a ceiling
+	// the athlete was never actually racing to.
+	Attributes.Recovery = Level;
 	Attributes.Technique = Level;
 	return Attributes;
 }
 
 /** The server's exact ceiling formula (backend/app/services/career.py). */
-double ServerCeiling(double MeanAttr)
+double ServerCeiling(const FWSSprintEventSpec& Spec, double MeanAttr)
 {
-	return 13.5 + (9.55 - 13.5) * FMath::Clamp(MeanAttr, 0.0, 100.0) / 100.0;
+	return Spec.CeilingAtZero + (Spec.CeilingAtHundred - Spec.CeilingAtZero)
+		* FMath::Clamp(MeanAttr, 0.0, 100.0) / 100.0;
+}
+
+const FWSSprintEventSpec& Hundred()
+{
+	return WSSprintEvents::Find(TEXT("sprint-100m"));
+}
+
+TArray<FWSSprintInputEvent> BestRealisticTrace(const FWSSprintAttributes& Attributes,
+	uint32 Seed, const FWSSprintEventSpec& Spec)
+{
+	// Consistency 1.0 = a flawless human rhythm, and 101ms is the fastest
+	// reaction the false-start rule permits: together, the true ceiling of
+	// legal play. Calibrating against a comfortable 130ms would leave the
+	// best players able to beat a ceiling the server then rejects them for.
+	return FWSSprintSimulation::GenerateAITrace(Attributes, Seed, Seed, 101.0, 0.0, 1.0, Spec);
 }
 
 TArray<FWSSprintInputEvent> BestRealisticTrace(const FWSSprintAttributes& Attributes, uint32 Seed)
 {
-	// Consistency 1.0 = a flawless human rhythm, the ceiling of play.
-	return FWSSprintSimulation::GenerateAITrace(Attributes, Seed, Seed, 130.0, 0.0, 1.0);
+	return BestRealisticTrace(Attributes, Seed, Hundred());
 }
 }
 
@@ -71,24 +91,64 @@ bool FWSSprintCeilingCalibrationTest::RunTest(const FString&)
 	// THE integration guarantee: an honestly simulated result must never be
 	// rejected by the server's attribute ceiling — and perfect play should
 	// land close enough above it that mastery feels rewarded.
-	for (const float Level : {0.0f, 40.0f, 70.0f, 100.0f})
+	// EVERY event in the table, not just the 100m: a 200m that simulated
+	// under its own ceiling would produce honest runs the server rejects.
+	//
+	// And every seed of a WIDE sample, not a token three. Wind is seeded and
+	// worth well over a second on a 400m, so a three-seed check can pass
+	// while the strongest legal tailwind — which the server's ceiling does
+	// NOT forgive — sails straight under the ceiling in the wild.
+	for (const FWSSprintEventSpec& Spec : WSSprintEvents::All())
 	{
-		const FWSSprintAttributes Attributes = UniformAttributes(Level);
-		const double Ceiling = ServerCeiling(Level);
-		for (const uint32 Seed : {7u, 1234u, 999983u})
+		// Tolerance scales with distance — a 400m has four times the race to
+		// accumulate the same proportional error as a 100m.
+		const double NearBand = 1.2 * (Spec.DistanceMetres / 100.0);
+		for (const float Level : {0.0f, 25.0f, 40.0f, 55.0f, 70.0f, 85.0f, 100.0f})
 		{
-			const FWSSprintOutcome Outcome = FWSSprintSimulation::RunTrace(
-				Attributes, Seed, BestRealisticTrace(Attributes, Seed));
-			TestTrue(FString::Printf(TEXT("attrs %.0f seed %u finished"), Level, Seed),
-				Outcome.bFinished);
+			const FWSSprintAttributes Attributes = UniformAttributes(Level);
+			const double Ceiling = ServerCeiling(Spec, Level);
+
+			double WorstMargin = TNumericLimits<double>::Max();
+			double WorstTime = 0.0;
+			uint32 WorstSeed = 0;
+			double WorstWind = 0.0;
+			double SlowestTime = 0.0;
+			for (uint32 Seed = 1; Seed <= 32; ++Seed)
+			{
+				const FWSSprintOutcome Outcome = FWSSprintSimulation::RunTrace(
+					Attributes, Seed, BestRealisticTrace(Attributes, Seed, Spec), Spec);
+				TestTrue(FString::Printf(TEXT("%s attrs %.0f seed %u finished"),
+						*Spec.Code, Level, Seed),
+					Outcome.bFinished);
+				TestEqual(FString::Printf(TEXT("%s reports %d splits"),
+						*Spec.Code, Spec.SplitCount),
+					Outcome.Splits.Num(), Spec.SplitCount);
+				if (Outcome.TimeSeconds - Ceiling < WorstMargin)
+				{
+					WorstMargin = Outcome.TimeSeconds - Ceiling;
+					WorstTime = Outcome.TimeSeconds;
+					WorstSeed = Seed;
+					WorstWind = Outcome.Wind;
+				}
+				SlowestTime = FMath::Max(SlowestTime, Outcome.TimeSeconds);
+			}
+
+			// The calibration table, in the log: tuning the event constants
+			// is guesswork without seeing where the margin actually is.
+			AddInfo(FString::Printf(
+				TEXT("CALIB %-12s attrs %3.0f  worst %7.3f (seed %2u, wind %+.1f)")
+				TEXT("  ceiling %7.3f  margin %+.3f  slowest %7.3f"),
+				*Spec.Code, Level, WorstTime, WorstSeed, WorstWind,
+				Ceiling, WorstMargin, SlowestTime));
+
 			TestTrue(FString::Printf(
-					TEXT("attrs %.0f seed %u: %.3f must be >= ceiling %.3f"),
-					Level, Seed, Outcome.TimeSeconds, Ceiling),
-				Outcome.TimeSeconds >= Ceiling - 0.009); // server allows -0.01
+					TEXT("%s attrs %.0f seed %u (wind %+.1f): %.3f must be >= ceiling %.3f"),
+					*Spec.Code, Level, WorstSeed, WorstWind, WorstTime, Ceiling),
+				WorstMargin >= -0.009); // server allows -0.01
 			TestTrue(FString::Printf(
-					TEXT("attrs %.0f seed %u: %.3f should be near ceiling %.3f"),
-					Level, Seed, Outcome.TimeSeconds, Ceiling),
-				Outcome.TimeSeconds <= Ceiling + 1.2);
+					TEXT("%s attrs %.0f: slowest perfect run %.3f should stay near ceiling %.3f"),
+					*Spec.Code, Level, SlowestTime, Ceiling),
+				SlowestTime <= Ceiling + NearBand);
 		}
 	}
 	return true;
@@ -123,21 +183,63 @@ bool FWSSprintLopsidedCeilingTest::RunTest(const FString&)
 		Grinder.MaxSpeed = 99.0f; Grinder.StrideEfficiency = 40.0f;
 		Grinder.Stamina = 99.0f; Grinder.Technique = 99.0f;
 		All.Add(Grinder);
+
+		// Deliberate single-attribute exploits. Each of these is one
+		// attribute at the cap with the rest left low, which drags the
+		// governing MEAN — and so the server's ceiling — right down while
+		// handing the simulation its strongest input for one term. If any
+		// term can outrun the mean, one of these finds it.
+		auto Specialist = [](float FWSSprintAttributes::*Field)
+		{
+			FWSSprintAttributes Attributes;
+			Attributes.Reaction = 20.0f; Attributes.Acceleration = 20.0f;
+			Attributes.MaxSpeed = 20.0f; Attributes.StrideEfficiency = 20.0f;
+			Attributes.Stamina = 20.0f; Attributes.Recovery = 20.0f;
+			Attributes.Technique = 20.0f;
+			Attributes.*Field = 100.0f;
+			return Attributes;
+		};
+		All.Add(Specialist(&FWSSprintAttributes::Stamina));          // fatigue
+		All.Add(Specialist(&FWSSprintAttributes::Acceleration));     // tau
+		All.Add(Specialist(&FWSSprintAttributes::StrideEfficiency)); // band
+		All.Add(Specialist(&FWSSprintAttributes::Technique));        // band
+		All.Add(Specialist(&FWSSprintAttributes::MaxSpeed));         // top end
 		return All;
 	}();
 
-	for (const FWSSprintAttributes& Attributes : Lopsided)
+	for (const FWSSprintEventSpec& Spec : WSSprintEvents::All())
 	{
-		const double Ceiling = ServerCeiling(Attributes.GoverningMean());
-		for (const uint32 Seed : {3u, 77u, 4242u})
+		for (const FWSSprintAttributes& Attributes : Lopsided)
 		{
-			const FWSSprintOutcome Outcome = FWSSprintSimulation::RunTrace(
-				Attributes, Seed, BestRealisticTrace(Attributes, Seed));
-			TestTrue(TEXT("finished"), Outcome.bFinished);
+			// The governing SET differs per event (the 400m counts recovery),
+			// so the mean is taken against this event's own list.
+			const double Mean = Attributes.GoverningMean(Spec.GoverningAttributes);
+			const double Ceiling = ServerCeiling(Spec, Mean);
+			// Sweep, don't sample: the strongest legal tailwind is seeded and
+			// is worth more than the margin being asserted.
+			double WorstMargin = TNumericLimits<double>::Max();
+			double WorstTime = 0.0;
+			uint32 WorstSeed = 0;
+			for (uint32 Seed = 1; Seed <= 32; ++Seed)
+			{
+				const FWSSprintOutcome Outcome = FWSSprintSimulation::RunTrace(
+					Attributes, Seed, BestRealisticTrace(Attributes, Seed, Spec), Spec);
+				TestTrue(TEXT("finished"), Outcome.bFinished);
+				if (Outcome.TimeSeconds - Ceiling < WorstMargin)
+				{
+					WorstMargin = Outcome.TimeSeconds - Ceiling;
+					WorstTime = Outcome.TimeSeconds;
+					WorstSeed = Seed;
+				}
+			}
+			AddInfo(FString::Printf(
+				TEXT("LOPSIDED %-12s mean %5.1f  worst %7.3f (seed %2u)")
+				TEXT("  ceiling %7.3f  margin %+.3f"),
+				*Spec.Code, Mean, WorstTime, WorstSeed, Ceiling, WorstMargin));
 			TestTrue(FString::Printf(
-					TEXT("mean %.1f seed %u: %.3f must not beat ceiling %.3f"),
-					Attributes.GoverningMean(), Seed, Outcome.TimeSeconds, Ceiling),
-				Outcome.TimeSeconds >= Ceiling - 0.009);
+					TEXT("%s mean %.1f seed %u: %.3f must not beat ceiling %.3f"),
+					*Spec.Code, Mean, WorstSeed, WorstTime, Ceiling),
+				WorstMargin >= -0.009);
 		}
 	}
 	return true;
@@ -217,35 +319,52 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSSprintSplitCoherenceTest,
 	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
 bool FWSSprintSplitCoherenceTest::RunTest(const FString&)
 {
-	// Splits must pass the server's exact checks: 10 of them, each >= 0.75s,
-	// reaction + sum within max(0.05, 1%) of the official time. We hold
-	// ourselves to half the server's tolerance.
-	for (const uint32 Seed : {11u, 222u, 3333u})
+	// Splits must pass the server's exact checks, for EVERY event: the
+	// expected count, each split above that event's floor, and reaction +
+	// splits recomposing the official time. We hold ourselves to half the
+	// server's tolerance. A 400m checked against the 100m's 0.75s floor
+	// proves nothing — the floors differ per event and so must the test.
+	for (const FWSSprintEventSpec& Spec : WSSprintEvents::All())
 	{
-		const FWSSprintAttributes Attributes = UniformAttributes(60.0f);
-		const FWSSprintOutcome Outcome = FWSSprintSimulation::RunTrace(Attributes, Seed,
-			FWSSprintSimulation::GenerateAITrace(Attributes, Seed, Seed, 170.0, 30.0, 0.8));
-		TestTrue(TEXT("finished"), Outcome.bFinished);
-		TestEqual(TEXT("ten splits"), Outcome.Splits.Num(), 10);
-
-		double Sum = 0.0;
-		for (const double Split : Outcome.Splits)
+		for (const uint32 Seed : {11u, 222u, 3333u})
 		{
-			TestTrue(FString::Printf(TEXT("split %.3f >= server floor 0.75"), Split),
-				Split >= 0.75);
-			Sum += Split;
-		}
-		const double Recomposed = Outcome.ReactionMs / 1000.0 + Sum;
-		TestTrue(FString::Printf(
-				TEXT("reaction+splits (%.3f) matches time (%.3f)"),
-				Recomposed, Outcome.TimeSeconds),
-			FMath::Abs(Recomposed - Outcome.TimeSeconds) <= 0.025);
+			// A mid-table athlete playing loosely — the ordinary case the
+			// validator sees most, not a calibration extreme.
+			const FWSSprintAttributes Attributes = UniformAttributes(60.0f);
+			const FWSSprintOutcome Outcome = FWSSprintSimulation::RunTrace(Attributes, Seed,
+				FWSSprintSimulation::GenerateAITrace(
+					Attributes, Seed, Seed, 170.0, 30.0, 0.8, Spec), Spec);
+			TestTrue(TEXT("finished"), Outcome.bFinished);
+			TestEqual(FString::Printf(TEXT("%s split count"), *Spec.Code),
+				Outcome.Splits.Num(), Spec.SplitCount);
 
-		TestTrue(TEXT("wind in the generated band"),
-			Outcome.Wind >= -1.5 && Outcome.Wind <= 2.0);
-		TestTrue(TEXT("reaction is legal"), Outcome.ReactionMs >= 100.0);
-		TestTrue(TEXT("plausible time"),
-			Outcome.TimeSeconds > 9.0 && Outcome.TimeSeconds < 60.0);
+			double Sum = 0.0;
+			for (const double Split : Outcome.Splits)
+			{
+				TestTrue(FString::Printf(TEXT("%s split %.3f >= server floor %.2f"),
+						*Spec.Code, Split, Spec.MinSplitSeconds),
+					Split >= Spec.MinSplitSeconds);
+				Sum += Split;
+			}
+			const double Recomposed = Outcome.ReactionMs / 1000.0 + Sum;
+			// The server's tolerance is max(0.05, 1% of the time), so the
+			// half-tolerance we hold ourselves to scales with the event.
+			const double Tolerance = FMath::Max(0.025, 0.005 * Outcome.TimeSeconds);
+			TestTrue(FString::Printf(
+					TEXT("%s reaction+splits (%.3f) matches time (%.3f)"),
+					*Spec.Code, Recomposed, Outcome.TimeSeconds),
+				FMath::Abs(Recomposed - Outcome.TimeSeconds) <= Tolerance);
+
+			TestTrue(TEXT("wind in the generated band"),
+				Outcome.Wind >= -1.5 && Outcome.Wind <= 2.0);
+			TestTrue(TEXT("reaction is legal"), Outcome.ReactionMs >= 100.0);
+			TestTrue(FString::Printf(
+					TEXT("%s time %.3f inside the server's plausible band [%.1f, %.1f]"),
+					*Spec.Code, Outcome.TimeSeconds,
+					Spec.MinPlausibleSeconds, Spec.MaxPlausibleSeconds),
+				Outcome.TimeSeconds > Spec.MinPlausibleSeconds &&
+					Outcome.TimeSeconds < Spec.MaxPlausibleSeconds);
+		}
 	}
 	return true;
 }

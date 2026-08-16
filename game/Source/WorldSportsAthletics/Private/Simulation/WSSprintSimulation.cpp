@@ -1,5 +1,7 @@
 #include "Simulation/WSSprintSimulation.h"
 
+#include "Simulation/WSSprintEvents.h"
+
 #include "Math/RandomStream.h"
 #include "Misc/SecureHash.h"
 
@@ -11,10 +13,10 @@ namespace WSSprint
 // by widening the test.
 constexpr double VMaxAt0 = 8.35;       // m/s top speed, 0 attributes
 constexpr double VMaxAt100 = 11.63;    // m/s top speed, maxed
-// Slightly concave in the attribute: the server ceiling is linear in the
-// attribute MEAN while race time is ~1/V, so a linear V dips under the
-// ceiling chord mid-range. The exponent keeps a safety margin everywhere.
-constexpr double MaxSpeedCurve = 1.22;
+// The concavity now lives per event (FWSSprintEventSpec::TopSpeedCurve):
+// the server ceiling is linear in the attribute MEAN while race time is
+// ~1/V, so a linear V dips under the ceiling chord mid-range, and the dip
+// widens with distance.
 constexpr double TauAt0 = 1.35;        // s, acceleration time constant
 constexpr double TauGain = 0.45;       // tau shrinks with acceleration attr
 constexpr double AccuracyFloor = 0.66; // v_target factor at accuracy 0
@@ -22,12 +24,13 @@ constexpr double FatiguePenalty = 0.13;
 constexpr double FatigueRate = 0.055;
 constexpr double WindPerMs = 0.004;    // v_target factor per m/s of wind
 constexpr double BaselineAccuracy = 0.25; // "jogging" — no rhythm at all
-constexpr double LeanWindowStart = 95.0;
 constexpr double LeanBonus = 0.04;     // metres
 constexpr double LeanStumbleFactor = 0.985;
 constexpr double AutoReleaseSeconds = 1.5;
 constexpr double PreGunSeconds = 3.0;
-constexpr double SafetyCapSeconds = 90.0;
+// Per 100m of race: a 400m legitimately takes four times as long as a
+// 100m, so a fixed cap would abandon a slow-but-honest one-lap run.
+constexpr double SafetyCapSecondsPer100m = 90.0;
 
 double Normalized(float Attr)
 {
@@ -35,8 +38,48 @@ double Normalized(float Attr)
 }
 }
 
+float FWSSprintAttributes::ByKey(FName Key) const
+{
+	// The backend's ATTRIBUTE_KEYS, which are the contract between the two.
+	if (Key == TEXT("reaction")) { return Reaction; }
+	if (Key == TEXT("acceleration")) { return Acceleration; }
+	if (Key == TEXT("max_speed")) { return MaxSpeed; }
+	if (Key == TEXT("stride_efficiency")) { return StrideEfficiency; }
+	if (Key == TEXT("stamina")) { return Stamina; }
+	if (Key == TEXT("recovery")) { return Recovery; }
+	if (Key == TEXT("technique")) { return Technique; }
+	// An unknown key is a contract break with the backend, not a default.
+	// Silently returning a number here is what hid the missing "recovery"
+	// field: the 400m's governing mean came out lower on the client than on
+	// the server, so the ceiling the player was shown was not the one the
+	// simulation ran to.
+	ensureMsgf(false, TEXT("Unknown sprint attribute key '%s'"), *Key.ToString());
+	return 40.0f;
+}
+
+double FWSSprintAttributes::GoverningMean(const TArray<FName>& GoverningAttributes) const
+{
+	if (GoverningAttributes.Num() == 0)
+	{
+		return 40.0;
+	}
+	double Total = 0.0;
+	for (const FName Key : GoverningAttributes)
+	{
+		Total += ByKey(Key);
+	}
+	return Total / GoverningAttributes.Num();
+}
+
 FWSSprintSimulation::FWSSprintSimulation(const FWSSprintAttributes& InAttributes, uint32 InSeed)
+	: FWSSprintSimulation(InAttributes, InSeed, WSSprintEvents::All()[0])
+{
+}
+
+FWSSprintSimulation::FWSSprintSimulation(const FWSSprintAttributes& InAttributes, uint32 InSeed,
+	const FWSSprintEventSpec& InEvent)
 	: Attributes(InAttributes)
+	, EventSpec(InEvent)
 {
 	State.RaceTime = -WSSprint::PreGunSeconds;
 
@@ -54,17 +97,28 @@ double FWSSprintSimulation::TargetCadenceAt(double DistanceMetres) const
 {
 	// Drive: ramp up. Transition/top: hold. Fatigue zone: slightly lower
 	// and DRIFTING — holding rhythm here is the skill ceiling.
-	if (DistanceMetres < 30.0)
+	//
+	// Phase boundaries are FRACTIONS of the event distance, so one curve
+	// describes a 100m and a 400m. Absolute metres here is what made adding
+	// the 200m a code change instead of a data change.
+	const double Fraction = EventSpec.DistanceMetres > 0.0
+		? DistanceMetres / EventSpec.DistanceMetres
+		: 0.0;
+	if (Fraction < EventSpec.DriveEndFraction)
 	{
-		return 3.2 + (4.6 - 3.2) * (DistanceMetres / 30.0);
+		const double Ramp = EventSpec.DriveEndFraction > 0.0
+			? Fraction / EventSpec.DriveEndFraction
+			: 1.0;
+		return EventSpec.DriveCadenceHz +
+			(EventSpec.HoldCadenceHz - EventSpec.DriveCadenceHz) * Ramp;
 	}
-	if (DistanceMetres < 85.0)
+	if (Fraction < EventSpec.FatigueStartFraction)
 	{
-		return 4.6;
+		return EventSpec.HoldCadenceHz;
 	}
 	const double Drift =
 		0.25 * FMath::Sin(2.0 * PI * 0.4 * State.RaceTime + BandDriftPhase);
-	return 4.45 + Drift;
+	return EventSpec.FatigueCadenceHz + Drift;
 }
 
 void FWSSprintSimulation::AddInput(const FWSSprintInputEvent& Event)
@@ -136,7 +190,7 @@ void FWSSprintSimulation::ApplyEvent(const FWSSprintInputEvent& Event)
 			break;
 		}
 		bLeanUsed = true;
-		if (State.Distance >= WSSprint::LeanWindowStart)
+		if (State.Distance >= EventSpec.DistanceMetres * EventSpec.LeanWindowFraction)
 		{
 			LeanBonusMetres = WSSprint::LeanBonus;
 		}
@@ -191,9 +245,27 @@ bool FWSSprintSimulation::Step()
 		}
 		if (!State.bReleased)
 		{
-			return State.RaceTime < SafetyCapSeconds;
+			return State.RaceTime < SafetyCapSecondsPer100m * (EventSpec.DistanceMetres / 100.0);
 		}
 	}
+
+	// The mean the SERVER's ceiling is computed from. Everything the
+	// attributes do to this race is measured against it.
+	const double GoverningFraction =
+		FMath::Clamp(Attributes.GoverningMean(EventSpec.GoverningAttributes), 0.0, 100.0) / 100.0;
+	// An attribute ABOVE that mean contributes only up to the mean.
+	//
+	// The ceiling is a function of the mean alone, so if any single
+	// attribute could push the athlete faster than the mean allows, a
+	// lopsided athlete would run honest times the server then rejects —
+	// which is exactly what a max_speed/stamina specialist did on the 400m.
+	// Capping makes "no attribute beats the ceiling" structural rather than
+	// something re-tuned every time a constant moves. Training is still
+	// rewarded: every governing attribute raises the mean itself.
+	const auto Capped = [GoverningFraction](float Attr)
+	{
+		return FMath::Min(Normalized(Attr), GoverningFraction);
+	};
 
 	// --- Cadence accuracy (the skill signal) ---------------------------
 	State.TargetCadenceHz = TargetCadenceAt(State.Distance);
@@ -206,8 +278,8 @@ bool FWSSprintSimulation::Step()
 		// bonus is deliberately small so high attributes cannot shield bad
 		// rhythm — attributes raise the ceiling, execution decides.
 		const double ToleranceHz = 0.70 +
-			0.25 * Normalized(Attributes.StrideEfficiency) +
-			0.10 * Normalized(Attributes.Technique);
+			0.25 * Capped(Attributes.StrideEfficiency) +
+			0.10 * Capped(Attributes.Technique);
 		const double Error =
 			FMath::Abs(State.ActualCadenceHz - State.TargetCadenceHz);
 		InstantAccuracy = FMath::Max(
@@ -223,14 +295,18 @@ bool FWSSprintSimulation::Step()
 	// Individual attributes still shape the race through acceleration (tau),
 	// stamina (fatigue) and stride efficiency/technique (the tolerance band);
 	// they cost or save time within the ceiling rather than beating it.
-	const double GoverningFraction =
-		FMath::Clamp(Attributes.GoverningMean(), 0.0, 100.0) / 100.0;
-	const double VMax = VMaxAt0 + (VMaxAt100 - VMaxAt0) *
-		FMath::Pow(GoverningFraction, MaxSpeedCurve);
-	const double Tau = TauAt0 - TauGain * Normalized(Attributes.Acceleration);
+	const double VMax = EventSpec.TopSpeedScale *
+		(VMaxAt0 + (VMaxAt100 - VMaxAt0) *
+			FMath::Pow(GoverningFraction, EventSpec.TopSpeedCurve));
+	const double Tau = TauAt0 - TauGain * Capped(Attributes.Acceleration);
 	const double AccuracyFactor =
 		AccuracyFloor + (1.0 - AccuracyFloor) * State.CadenceAccuracy;
-	const double FatigueFactor = 1.0 - FatiguePenalty * State.Fatigue;
+	// Depth, not just rate: on a long event fatigue is pinned at 1.0 for most
+	// of the race, so how much it COSTS is the only thing left that can
+	// separate a strong athlete from a weak one over the distance.
+	const double FatigueDepth = FatiguePenalty * EventSpec.FatigueDepthScale *
+		(1.0 + EventSpec.FatigueStaminaSpread * (1.0 - Capped(Attributes.Stamina)));
+	const double FatigueFactor = 1.0 - FatigueDepth * State.Fatigue;
 	const double WindFactor = 1.0 + WindPerMs * Wind;
 	const double VTarget = VMax * AccuracyFactor * FatigueFactor * WindFactor;
 
@@ -240,23 +316,28 @@ bool FWSSprintSimulation::Step()
 
 	// --- Fatigue -------------------------------------------------------
 	const double Intensity = VMax > 0.0 ? State.Speed / VMax : 0.0;
-	State.Fatigue += FatigueRate *
+	// FatigueScale is the single number that makes the 400m a fatigue event
+	// and the 100m barely one.
+	State.Fatigue += FatigueRate * EventSpec.FatigueScale *
 		Intensity * Intensity * Intensity *
-		(1.35 - 0.65 * Normalized(Attributes.Stamina)) *
+		(1.35 - 0.65 * Capped(Attributes.Stamina)) *
 		(1.45 - 0.65 * State.CadenceAccuracy) * StepDt;
 	State.Fatigue = FMath::Min(State.Fatigue, 1.0);
 
 	// --- 10m marks and the finish --------------------------------------
-	while (NextSplitMark <= 10 &&
-		State.Distance >= NextSplitMark * 10.0 &&
+	const double SegmentMetres = EventSpec.SplitCount > 0
+		? EventSpec.DistanceMetres / EventSpec.SplitCount
+		: EventSpec.DistanceMetres;
+	while (NextSplitMark <= EventSpec.SplitCount &&
+		State.Distance >= NextSplitMark * SegmentMetres &&
 		PrevDistance < State.Distance)
 	{
-		const double Mark = NextSplitMark * 10.0;
+		const double Mark = NextSplitMark * SegmentMetres;
 		const double Alpha = (Mark - PrevDistance) / (State.Distance - PrevDistance);
 		const double CrossTime = (State.RaceTime - StepDt) + Alpha * StepDt;
 		Outcome.Splits.Add(CrossTime - LastSplitTime);
 		LastSplitTime = CrossTime;
-		if (NextSplitMark == 10)
+		if (NextSplitMark == EventSpec.SplitCount)
 		{
 			State.bFinished = true;
 			Outcome.bFinished = true;
@@ -270,13 +351,20 @@ bool FWSSprintSimulation::Step()
 	{
 		return false;
 	}
-	return State.RaceTime < SafetyCapSeconds;
+	return State.RaceTime < SafetyCapSecondsPer100m * (EventSpec.DistanceMetres / 100.0);
 }
 
 FWSSprintOutcome FWSSprintSimulation::RunTrace(const FWSSprintAttributes& Attributes,
 	uint32 Seed, const TArray<FWSSprintInputEvent>& Trace)
 {
-	FWSSprintSimulation Simulation(Attributes, Seed);
+	return RunTrace(Attributes, Seed, Trace, WSSprintEvents::All()[0]);
+}
+
+FWSSprintOutcome FWSSprintSimulation::RunTrace(const FWSSprintAttributes& Attributes,
+	uint32 Seed, const TArray<FWSSprintInputEvent>& Trace,
+	const FWSSprintEventSpec& InEventSpec)
+{
+	FWSSprintSimulation Simulation(Attributes, Seed, InEventSpec);
 	for (const FWSSprintInputEvent& Event : Trace)
 	{
 		Simulation.AddInput(Event);
@@ -308,6 +396,15 @@ FString FWSSprintSimulation::DigestTrace(const TArray<FWSSprintInputEvent>& Trac
 TArray<FWSSprintInputEvent> FWSSprintSimulation::GenerateAITrace(
 	const FWSSprintAttributes& Attributes, uint32 RaceSeed, uint32 InputSeed,
 	double ReactionMeanMs, double ReactionSpreadMs, double Consistency)
+{
+	return GenerateAITrace(Attributes, RaceSeed, InputSeed, ReactionMeanMs,
+		ReactionSpreadMs, Consistency, WSSprintEvents::All()[0]);
+}
+
+TArray<FWSSprintInputEvent> FWSSprintSimulation::GenerateAITrace(
+	const FWSSprintAttributes& Attributes, uint32 RaceSeed, uint32 InputSeed,
+	double ReactionMeanMs, double ReactionSpreadMs, double Consistency,
+	const FWSSprintEventSpec& InEventSpec)
 {
 	// The AI plays the game: it produces INPUT — a reaction and a tap
 	// rhythm of profile-dependent quality — and its time emerges from the
@@ -343,13 +440,15 @@ TArray<FWSSprintInputEvent> FWSSprintSimulation::GenerateAITrace(
 	const double BiasRateHz = 0.18 + 0.14 * Stream.FRand();
 
 	// Plan against the ACTUAL race conditions, not a different draw.
-	FWSSprintSimulation Shadow(Attributes, RaceSeed);
+	FWSSprintSimulation Shadow(Attributes, RaceSeed, InEventSpec);
 	for (const FWSSprintInputEvent& Event : Trace)
 	{
 		Shadow.AddInput(Event);
 	}
 
 	double NextTapAt = ReleaseTime + 0.12; // first stride off the blocks
+	// The loop below ends when the shadow race ends, so a 400m simply taps
+	// for longer — no per-event tuning needed.
 	while (Shadow.Step())
 	{
 		const FWSSprintState& Live = Shadow.GetState();
