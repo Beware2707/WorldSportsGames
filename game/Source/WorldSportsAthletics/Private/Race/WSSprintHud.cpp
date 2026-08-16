@@ -991,7 +991,12 @@ private:
 		FString Text = TEXT("Splits");
 		for (int32 Index = First; Index < Splits.Num(); ++Index)
 		{
-			Text += FString::Printf(TEXT("  %dm %.2f"), (Index + 1) * 10, Splits[Index]);
+			// The segment length is the EVENT's, not a hardcoded 10m. A 400m
+			// splits every 50m, and labelling those 10m/20m/30m told the
+			// player their race was something it was not.
+			const double Segment = Runner->GetSplitSegmentMetres();
+			Text += FString::Printf(TEXT("  %.0fm %.2f"),
+				Segment * (Index + 1), Splits[Index]);
 		}
 		return FText::FromString(Text);
 	}

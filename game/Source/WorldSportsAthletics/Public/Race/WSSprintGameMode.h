@@ -254,6 +254,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Race")
 	AWSSprintRunner* GetPlayerRunner() const { return PlayerRunner; }
 
+	/** The track this race is run on. */
+	AWSSprintTrack* GetTrack() const { return Track; }
+
 	/** The whole field, player included. */
 	const TArray<TObjectPtr<AWSSprintRunner>>& GetRunners() const { return Runners; }
 

@@ -45,6 +45,16 @@ public:
 
 	bool IsScripted() const { return ScriptedFinishSeconds > 0.0; }
 
+	/** Metres between this event's split marks. */
+	double GetSplitSegmentMetres() const
+	{
+		if (!Simulation.IsValid() || Simulation->GetEvent().SplitCount <= 0)
+		{
+			return 10.0;
+		}
+		return Simulation->GetRaceDistance() / Simulation->GetEvent().SplitCount;
+	}
+
 	/** The distance this runner is racing, in metres. */
 	double GetRaceDistance() const
 	{

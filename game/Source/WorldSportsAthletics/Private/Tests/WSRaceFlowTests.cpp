@@ -233,6 +233,36 @@ bool FWSRaceEventSelectionTest::RunTest(const FString&)
 			Outcome.TimeSeconds > Spec.MinPlausibleSeconds &&
 				Outcome.TimeSeconds < Spec.MaxPlausibleSeconds);
 
+		// The world the race is run in must match the race. On the first
+		// emulator run a 400m runner went off the end of a 100m track into
+		// black nothing, and the HUD labelled 50m splits as 10m/20m/30m —
+		// neither of which any offline test was watching for.
+		AWSSprintTrack* TrackActor = Harness.GameMode->GetTrack();
+		if (TestNotNull(TEXT("track spawned"), TrackActor))
+		{
+			TestEqual(FString::Printf(TEXT("%s: finish line is at the event distance"),
+					*Spec.Code),
+				TrackActor->GetFinishLineX(),
+				static_cast<float>(Spec.DistanceMetres) * 100.0f);
+
+			// One marker per split boundary, the finish excluded.
+			const TArray<float> Marks = TrackActor->GetVisibleMarkPositions();
+			TestEqual(FString::Printf(TEXT("%s: marker count"), *Spec.Code),
+				Marks.Num(), Spec.SplitCount - 1);
+			const float Segment =
+				static_cast<float>(Spec.DistanceMetres) * 100.0f / Spec.SplitCount;
+			for (int32 Index = 0; Index < Marks.Num(); ++Index)
+			{
+				TestEqual(FString::Printf(TEXT("%s: marker %d on its split"),
+						*Spec.Code, Index),
+					Marks[Index], Segment * (Index + 1));
+			}
+		}
+
+		TestEqual(FString::Printf(TEXT("%s: split segment reported to the HUD"),
+				*Spec.Code),
+			Player->GetSplitSegmentMetres(), Spec.DistanceMetres / Spec.SplitCount);
+
 		// The whole field ran the same distance — including the AI, which
 		// runs this simulation rather than being handed a finish time.
 		TestEqual(FString::Printf(TEXT("%s: full field"), *Spec.Code),

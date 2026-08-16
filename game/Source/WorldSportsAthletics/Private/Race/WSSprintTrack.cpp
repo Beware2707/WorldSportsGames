@@ -18,7 +18,7 @@ AWSSprintTrack::AWSSprintTrack()
 	Root->SetMobility(EComponentMobility::Static);
 
 	// Track surface, extended past the line so the run-out is not a void.
-	const float SurfaceHalfX = (TrackLengthCm + ApronCm) * 0.5f;
+	const float SurfaceHalfX = (MaxTrackLengthCm + ApronCm) * 0.5f;
 	const float SurfaceHalfY = LaneCount * LaneWidthCm * 0.5f + 60.0f;
 	MakeBox(TEXT("Surface"),
 		FVector(SurfaceHalfX - ApronCm * 0.5f, 0.0f, -10.0f),
@@ -48,17 +48,21 @@ AWSSprintTrack::AWSSprintTrack()
 	// Start and finish lines: the two marks a player actually reads.
 	MakeBox(TEXT("StartLine"), FVector(0.0f, 0.0f, 0.6f),
 		FVector(5.0f, SurfaceHalfY, 0.7f), FLinearColor::White);
-	MakeBox(TEXT("FinishLine"), FVector(TrackLengthCm, 0.0f, 0.6f),
+	FinishLine = MakeBox(TEXT("FinishLine"), FVector(10000.0f, 0.0f, 0.6f),
 		FVector(5.0f, SurfaceHalfY, 0.7f), FLinearColor::White);
+	FinishLine->SetMobility(EComponentMobility::Movable);
 
-	// 10 m distance markers along the infield edge — the split geometry
-	// made visible, so a player can see where their splits came from.
-	for (int32 Mark = 1; Mark < 10; ++Mark)
+	// Distance markers along the infield edge — the split geometry made
+	// visible, so a player can see where their splits came from. They are
+	// placed per race, because a 400m's splits are not a 100m's.
+	for (int32 Mark = 1; Mark <= MaxDistanceMarks; ++Mark)
 	{
-		MakeBox(*FString::Printf(TEXT("Mark%d"), Mark),
+		UStaticMeshComponent* Box = MakeBox(*FString::Printf(TEXT("Mark%d"), Mark),
 			FVector(Mark * 1000.0f, -(SurfaceHalfY + 40.0f), 0.6f),
 			FVector(4.0f, 30.0f, 0.7f),
 			FLinearColor(0.7f, 0.7f, 0.72f));
+		Box->SetMobility(EComponentMobility::Movable);
+		DistanceMarks.Add(Box);
 	}
 
 	// Blocks, one per lane, just behind the start line.
@@ -76,7 +80,7 @@ AWSSprintTrack::AWSSprintTrack()
 	// hazy horizon reads better than a black void.
 	const float BackdropHeight = 3000.0f;
 	MakeBox(TEXT("BackdropFar"),
-		FVector(TrackLengthCm + 9000.0f, 0.0f, BackdropHeight - 400.0f),
+		FVector(MaxTrackLengthCm + 9000.0f, 0.0f, BackdropHeight - 400.0f),
 		FVector(50.0f, 30000.0f, BackdropHeight),
 		FLinearColor(0.40f, 0.52f, 0.68f));
 	for (int32 Side = -1; Side <= 1; Side += 2)
@@ -102,6 +106,56 @@ AWSSprintTrack::AWSSprintTrack()
 	SkyLight->SetIntensity(1.6f);
 	SkyLight->SetMobility(EComponentMobility::Movable);
 	SkyLight->bLowerHemisphereIsBlack = false;
+}
+
+void AWSSprintTrack::SetRaceDistance(float DistanceMetres, int32 SplitCount)
+{
+	const float FinishX = FMath::Max(DistanceMetres, 1.0f) * 100.0f;
+	if (FinishLine)
+	{
+		const FVector Current = FinishLine->GetRelativeLocation();
+		FinishLine->SetRelativeLocation(FVector(FinishX, Current.Y, Current.Z));
+	}
+
+	// One marker per split boundary, the finish excluded — it already has a
+	// line. Any marker the event does not need is hidden rather than left
+	// standing somewhere the race never reaches.
+	const int32 Wanted = FMath::Clamp(SplitCount - 1, 0, DistanceMarks.Num());
+	const float Segment = SplitCount > 0 ? FinishX / SplitCount : FinishX;
+	for (int32 Index = 0; Index < DistanceMarks.Num(); ++Index)
+	{
+		UStaticMeshComponent* Mark = DistanceMarks[Index];
+		if (!Mark)
+		{
+			continue;
+		}
+		const bool bUsed = Index < Wanted;
+		Mark->SetVisibility(bUsed);
+		if (bUsed)
+		{
+			const FVector Current = Mark->GetRelativeLocation();
+			Mark->SetRelativeLocation(
+				FVector(Segment * (Index + 1), Current.Y, Current.Z));
+		}
+	}
+}
+
+float AWSSprintTrack::GetFinishLineX() const
+{
+	return FinishLine ? FinishLine->GetRelativeLocation().X : 0.0f;
+}
+
+TArray<float> AWSSprintTrack::GetVisibleMarkPositions() const
+{
+	TArray<float> Positions;
+	for (const UStaticMeshComponent* Mark : DistanceMarks)
+	{
+		if (Mark && Mark->GetVisibleFlag())
+		{
+			Positions.Add(Mark->GetRelativeLocation().X);
+		}
+	}
+	return Positions;
 }
 
 UStaticMeshComponent* AWSSprintTrack::MakeBox(const TCHAR* Name,

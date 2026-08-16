@@ -37,6 +37,53 @@ Two first-run failures worth remembering:
    while MSVC stays silent.
 2. The Java-25-vs-Gradle-8.7 mismatch above.
 
+### `Build.bat` does NOT produce a runnable APK
+
+`Build.bat WorldSports Android` compiles the `.so` and runs Gradle, and it
+does leave an `.apk` in `Binaries/Android` — but that APK has no cooked
+content. Installing it gets as far as a dialog reading:
+
+```
+Failed to open descriptor file ../../../WorldSports/WorldSports.uproject
+```
+
+Only `RunUAT BuildCookRun … -cook -stage -pak -package` produces something
+that runs. Use `Build.bat` for the compile check (it is much faster, and it
+is where the Android-only compile errors show up); use UAT to get an APK.
+
+### UBT replays a CACHED environment
+
+UnrealBuildTool captures env vars (`JAVA_HOME`, `ANDROID_HOME`, `NDKROOT`)
+into `game/Intermediate/Build/<Platform>/…/Makefile.bin` and hands that
+captured copy to child processes. A JAVA_HOME that was wrong once therefore
+keeps failing the Gradle step *after* the real variable is fixed — and
+`echo %JAVA_HOME%` in any shell shows the correct value the whole time.
+Delete that `Makefile.bin` and `Intermediate/Android/UEBuildSettings.txt`,
+which caches the same values. Object files survive; it is not a full rebuild.
+
+## Android emulator
+
+Installed 2026-08-17 for on-device verification without the physical phone:
+
+```
+sdkmanager --install emulator "system-images;android-34;google_apis;x86_64"
+avdmanager create avd -n WSGames34 -k "system-images;android-34;google_apis;x86_64" -d pixel_6
+emulator -avd WSGames34 -no-snapshot -gpu host -no-boot-anim
+adb reverse tcp:8000 tcp:8000     # the backend, same as for a real device
+```
+
+The emulator is **x86-64** on a Windows host, so `bBuildForX8664=True` is now
+set in `DefaultEngine.ini` alongside arm64. An arm64 APK will not install on
+it, and an arm64 system image under full emulation is far too slow to judge
+anything by. Packaging now produces both `WorldSports-arm64.apk` and
+`WorldSports-x64.apk`.
+
+**What the emulator can and cannot verify.** It is good for logic, flow, UI
+layout, input routing and live server round-trips. It is *not* evidence for
+the roadmap's frame-rate gate: the GPU is the host's through a translation
+layer and there is no thermal behaviour at all. "Runs on a real mid-range
+Android device at the tier's target frame rate" still needs the phone.
+
 ## Remaining: physical device
 
 - `adb devices` sees the test phone (USB debugging on) — none connected yet.

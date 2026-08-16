@@ -213,7 +213,45 @@ fastest legal reaction (101ms), because wind is seeded and worth more than a
 second over 400m — a three-seed sample passed while the strongest legal
 tailwind sailed under the ceiling.
 
-### 6.3 Deliberately still open
+### 6.3 Middle distance (800m / 1500m) — a new event KIND
+
+Not a longer sprint, and treating it as one would have produced a bad game.
+Three things make it a different kind:
+
+- **No blocks**, so no reaction to measure (`requires_reaction=False`).
+- **No wind.** World Athletics records none beyond 200m, so reporting one
+  would invent a measurement the sport does not take.
+- **The skill is pace judgement against a finite energy budget**, not stride
+  cadence. Tapping a rhythm for four minutes is not a game.
+
+Lives in `WSPaceSimulation.h/.cpp` as `FWSMiddleDistanceSimulation`. What
+carries over from the sprint is exactly the part that makes results
+trustworthy: fixed-step deterministic integration, a seeded race, the
+server's ceiling model, and the per-attribute cap at the governing mean.
+
+**The live backend caught a defect no offline test could:**
+
+```
+middle-800m: 130.373s was rejected — beyond this athlete's ceiling (130.400)
+```
+
+The calibration had treated *the fastest pace you can hold without emptying
+the tank* as perfect play. It is not: going a shade over and dying over the
+last 100m is faster, exactly as on a real track. The reference therefore
+understated the true optimum, and an honestly run race crossed the server's
+limit. Fixed by (a) searching for the effort that minimises finish time
+directly — a coarse scan plus local refine, **not** a ternary search, since
+time against effort is not unimodal and ternary converged into a basin 19s
+slower — and (b) a test that sweeps a *family* of 75 pacing strategies per
+point and asserts none beats the ceiling. A player will always find a line
+the designer did not model, so the guarantee has to hold for lines nobody
+modelled.
+
+**Status: simulated, calibrated (margins +1.9s to +6.5s), and accepted by
+the live backend. NOT yet playable** — there is no game mode or HUD for the
+pace input model, so the vertical slice is not closed.
+
+### 6.4 Deliberately still open
 
 - **The 200m and 400m are run on a straight track.** Bends need track
   geometry, lane-stagger and a camera that follows a curve; the simulation is

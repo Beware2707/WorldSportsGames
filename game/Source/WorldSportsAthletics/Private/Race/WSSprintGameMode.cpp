@@ -742,6 +742,14 @@ FString AWSSprintGameMode::GetDrillPrompt() const
 
 void AWSSprintGameMode::StartRace()
 {
+	// The finish line and the infield markers belong to THIS event.
+	if (Track)
+	{
+		Track->SetRaceDistance(
+			static_cast<float>(CurrentEvent().DistanceMetres),
+			CurrentEvent().SplitCount);
+	}
+
 	for (AWSSprintRunner* Runner : Runners)
 	{
 		if (Runner)
@@ -1021,7 +1029,10 @@ void AWSSprintGameMode::UpdateCamera(float DeltaSeconds)
 	case EWSEventPhase::Submit:
 	case EWSEventPhase::Reward:
 		// Square onto the line from the side — where a photo finish reads.
-		Desired = FVector(AWSSprintTrack::TrackLengthCm + 260.0f, LaneY - 900.0f, 320.0f);
+		// The line is where THIS event finishes, not where the 100m did.
+		Desired = FVector(
+			static_cast<float>(CurrentEvent().DistanceMetres) * 100.0f + 260.0f,
+			LaneY - 900.0f, 320.0f);
 		DesiredRotation = FRotator(-9.0f, 108.0f, 0.0f);
 		break;
 	default:
