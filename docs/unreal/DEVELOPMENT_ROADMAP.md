@@ -76,6 +76,35 @@ finished and *feels good*.
 they understand, sees it on a leaderboard, closes the app, reopens it and their
 progress is there.
 
+### Status (2026-08-16)
+
+| # | Deliverable | State |
+|---|---|---|
+| 1 | Sprint level | ✅ procedural track, lines, blocks, 10m marks, backdrop |
+| 2 | Athlete pawn + locomotion | ⚠️ placeholder capsules with a stride bob; needs character art and an AnimBP |
+| 3 | Race state machine | ✅ on the sport-agnostic phase machine |
+| 4 | Start mechanic | ✅ hold/gun/reaction, rule-accurate false start, randomised set pause |
+| 5 | Sprint simulation | ✅ deterministic, calibrated to the server ceiling |
+| 6 | Input prototypes ×3, playtested | ❌ only rhythm-and-hold exists; the other two and the playtest need a human |
+| 7 | AI opponents, 5 difficulties | ✅ same simulation, input-quality tiers, ordering asserted |
+| 8 | Camera set | ✅ blocks / chase / finish |
+| 9 | HUD | ✅ clock, reaction, speed, cadence band, stamina, splits |
+| 10 | Finish detection + timing | ✅ interpolated 10m marks, ms truncation |
+| 11 | Result screen | ✅ position, time, wind, full field, server verdict |
+| 12 | Submission + offline queue | ✅ per-account queue, idempotent replays |
+| 13 | Local save + cloud sync | ⚠️ subsystem done and tested; the race does not write career save yet |
+| 14 | Leaderboard view | ✅ global board, verified fetching real rows on device |
+| 15 | Menu → race → result → menu | ✅ |
+| 16 | Pause, restart, settings, quality | ✅ pause cannot buy time or disqualify |
+| 17 | Audio | ⚠️ procedural gun/calls/footfalls/finish; needs authored sound, and audibility is unverified by ear |
+| 18 | Replay of the finish | ✅ presentation only, result provably unchanged |
+| 19 | Android build at target frame rate | ✅ ~58 fps on a realme C73 5G |
+| 20 | C++ automation tests | ✅ 27 green |
+
+The gaps are honest ones: character art and animation, the two unbuilt input
+prototypes and the playtest that picks between them, authored audio, and
+wiring the race into cloud save. None of them is blocked by the framework.
+
 ### Measured on device (realme C73 5G, RMX3945) — 2026-08-16
 
 A live 8-runner race, Development build, ASTC, default quality tier:
