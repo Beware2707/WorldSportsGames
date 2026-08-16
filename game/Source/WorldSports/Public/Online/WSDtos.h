@@ -7,8 +7,8 @@
 /**
  * DTOs mirroring the FastAPI schemas. Property names are deliberately
  * snake_case, identical to the wire format, so FJsonObjectConverter maps them
- * without a rename table — the backend schema file is the single source of
- * truth for these names (backend/app/schemas/*.py).
+ * without a rename table — the backend schema files are the single source of
+ * truth for these names (backend/app/schemas/).
  */
 
 USTRUCT()

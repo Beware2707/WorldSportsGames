@@ -22,21 +22,33 @@ Windows piping gotcha for posterity: `'y' | sdkmanager.bat --licenses` from
 PowerShell does NOT reach the underlying Java process; use cmd's file
 redirection (`cmd /c "sdkmanager.bat --licenses < yes.txt"`).
 
-## Verify before Android packaging
+| **Temurin JDK 21** | ✅ | `C:\Program Files\Eclipse Adoptium\jdk-21.0.12.8-hotspot`, and JAVA_HOME points at it. Needed because Android Studio's bundled JBR is **Java 25**, which UE 5.8's pinned **Gradle 8.7** cannot run ("Unsupported class file major version 69"). Gradle 8.7 tops out at Java 21. |
 
-- `sdkmanager --list_installed` shows platform-tools, android-34,
-  build-tools 35.0.1, ndk 27.2.12479018, cmake 3.22.1.
-- `adb devices` sees the physical test phone (USB debugging on).
-- The `game/` project packages a Development APK:
-  `RunUAT BuildCookRun -project=game/WorldSports.uproject -platform=Android -cookflavor=ASTC -build -cook -stage -package`.
-- The APK installs and reaches the entry map on the device — the roadmap's
-  Phase 1 exit criterion, worth proving while the project is still nearly
-  empty so packaging failures are diagnosed in isolation.
+## Android packaging — VERIFIED 2026-08-16
+
+`RunUAT BuildCookRun -project=game/WorldSports.uproject -platform=Android
+-cookflavor=ASTC -clientconfig=Development -build -cook -stage -pak -package`
+produces `game/Binaries/Android/WorldSports-arm64.apk` (~166 MB dev build,
+Vulkan + ES3.1 shader libraries, install/uninstall scripts, symbols).
+
+Two first-run failures worth remembering:
+1. NDK clang enforces `-Werror,-Wcomment`: a literal `/*` inside a doc
+   comment (e.g. the path glob `schemas/*.py`) breaks the Android compile
+   while MSVC stays silent.
+2. The Java-25-vs-Gradle-8.7 mismatch above.
+
+## Remaining: physical device
+
+- `adb devices` sees the test phone (USB debugging on) — none connected yet.
+- `game/Binaries/AndroidArchive/Install_WorldSports-arm64.bat` installs it;
+  reaching the entry map on the device closes the roadmap's Phase 1 exit
+  criterion.
 
 ## Current state of Phase 1 Track B
 
-The Unreal project skeleton exists at `game/` (three modules, core
-subsystems, HTTP auth client) and **authenticates against the live backend**
-— the `LiveBackend.AuthRoundTrip` automation test registers/logs in and
-round-trips `/auth/me` against a running uvicorn. Win64 builds are proven;
-Android packaging is the piece gated on the license step above.
+The Unreal project skeleton at `game/` (three modules, core subsystems, HTTP
+auth client) **authenticates against the live backend** — the
+`LiveBackend.AuthRoundTrip` automation test registers/logs in and round-trips
+`/auth/me` against a running uvicorn. Win64 editor + runtime builds are
+proven, 10 automation tests are green, and the Android APK packages end to
+end. Only the on-device smoke remains.
