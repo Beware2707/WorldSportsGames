@@ -61,7 +61,18 @@ struct WORLDSPORTSATHLETICS_API FWSSprintAttributes
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sprint") float Stamina = 40.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sprint") float Technique = 40.0f;
 
-	/** Mean of the server's governing attributes — the ceiling input. */
+	/**
+	 * Mean of the server's governing attributes for the 100m — the exact
+	 * input its ceiling formula uses (backend services/career.py:
+	 * attribute_ceiling over ("reaction", "acceleration", "max_speed",
+	 * "stride_efficiency", "stamina")).
+	 *
+	 * Top speed is derived from THIS mean rather than from MaxSpeed alone.
+	 * Otherwise a lopsided athlete — max_speed 90, everything else 40 —
+	 * simulates faster than the mean-based ceiling permits, and an honestly
+	 * run race comes back rejected, which reads to the player as the game
+	 * calling them a cheat.
+	 */
 	double GoverningMean() const
 	{
 		return (Reaction + Acceleration + MaxSpeed + StrideEfficiency + Stamina) / 5.0;

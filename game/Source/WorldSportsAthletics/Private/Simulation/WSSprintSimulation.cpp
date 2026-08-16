@@ -218,8 +218,15 @@ bool FWSSprintSimulation::Step()
 		(InstantAccuracy - State.CadenceAccuracy) * FMath::Min(1.0, 4.0 * StepDt);
 
 	// --- Speed ---------------------------------------------------------
+	// Top speed follows the SERVER's ceiling input (the mean of the governing
+	// attributes), not MaxSpeed alone — see FWSSprintAttributes::GoverningMean.
+	// Individual attributes still shape the race through acceleration (tau),
+	// stamina (fatigue) and stride efficiency/technique (the tolerance band);
+	// they cost or save time within the ceiling rather than beating it.
+	const double GoverningFraction =
+		FMath::Clamp(Attributes.GoverningMean(), 0.0, 100.0) / 100.0;
 	const double VMax = VMaxAt0 + (VMaxAt100 - VMaxAt0) *
-		FMath::Pow(Normalized(Attributes.MaxSpeed), MaxSpeedCurve);
+		FMath::Pow(GoverningFraction, MaxSpeedCurve);
 	const double Tau = TauAt0 - TauGain * Normalized(Attributes.Acceleration);
 	const double AccuracyFactor =
 		AccuracyFloor + (1.0 - AccuracyFloor) * State.CadenceAccuracy;

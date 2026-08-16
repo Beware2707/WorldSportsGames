@@ -6,6 +6,7 @@
 #include "Framework/WSGameStateBase.h"
 #include "Kismet/GameplayStatics.h"
 #include "Online/WSOnlineSubsystem.h"
+#include "Progression/WSProgressionSubsystem.h"
 #include "Race/WSSprintAudio.h"
 #include "Race/WSSprintHud.h"
 #include "Race/WSSprintPlayerController.h"
@@ -13,6 +14,8 @@
 #include "Math/RandomStream.h"
 #include "Race/WSSprintTrack.h"
 #include "Simulation/WSSprintDifficulty.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
 #include "Sports/Results/WSEventResult.h"
 
 namespace
@@ -243,6 +246,248 @@ void AWSSprintGameMode::RefreshLeaderboard()
 		});
 }
 
+// -- Career -------------------------------------------------------------
+
+UWSProgressionSubsystem* AWSSprintGameMode::Progression() const
+{
+	return GetGameInstance()
+		? GetGameInstance()->GetSubsystem<UWSProgressionSubsystem>()
+		: nullptr;
+}
+
+bool AWSSprintGameMode::HasCareerAthlete() const
+{
+	const UWSProgressionSubsystem* P = Progression();
+	return P && P->HasCareerAthlete();
+}
+
+void AWSSprintGameMode::RefreshCareer()
+{
+	UWSProgressionSubsystem* P = Progression();
+	if (!P || !IsSignedIn())
+	{
+		CareerStatus = TEXT("Sign in to start a career");
+		return;
+	}
+	CareerStatus = TEXT("Loading…");
+	RecordsText.Reset();
+
+	TWeakObjectPtr<AWSSprintGameMode> WeakThis(this);
+	P->RefreshCareerAthlete([WeakThis](bool bOk, const FString& Error)
+	{
+		AWSSprintGameMode* Self = WeakThis.Get();
+		if (!Self)
+		{
+			return;
+		}
+		Self->CareerStatus = bOk ? FString() : Error;
+		if (!bOk)
+		{
+			return;
+		}
+		// Records come from the server's audit trail; the client never
+		// computes a personal best of its own.
+		if (UWSOnlineSubsystem* Online = Self->GetGameInstance()
+				? Self->GetGameInstance()->GetSubsystem<UWSOnlineSubsystem>() : nullptr)
+		{
+			Online->Request(TEXT("GET"), TEXT("/api/v1/career/records"), nullptr,
+				[WeakThis](const FWSHttpResult& Result)
+				{
+					AWSSprintGameMode* Inner = WeakThis.Get();
+					if (!Inner || !Result.IsSuccess() || !Result.Json.IsValid())
+					{
+						return;
+					}
+					const TArray<TSharedPtr<FJsonValue>>* Rows = nullptr;
+					if (!Result.Json->TryGetArrayField(TEXT(""), Rows))
+					{
+						// A bare JSON array parses into the value, not an
+						// object field; read it from the raw body instead.
+					}
+					FString Text;
+					TArray<TSharedPtr<FJsonValue>> Parsed;
+					const TSharedRef<TJsonReader<>> Reader =
+						TJsonReaderFactory<>::Create(Result.Body);
+					if (FJsonSerializer::Deserialize(Reader, Parsed))
+					{
+						for (const TSharedPtr<FJsonValue>& Value : Parsed)
+						{
+							const TSharedPtr<FJsonObject> Row = Value->AsObject();
+							if (!Row.IsValid())
+							{
+								continue;
+							}
+							FString Event, Pb, Wb, Holder;
+							Row->TryGetStringField(TEXT("event"), Event);
+							Row->TryGetStringField(TEXT("personal_best_text"), Pb);
+							Row->TryGetStringField(TEXT("world_best_text"), Wb);
+							Row->TryGetStringField(TEXT("world_best_holder"), Holder);
+							Text += FString::Printf(TEXT("%s\n  PB %s    Best %s%s\n"),
+								*Event,
+								Pb.IsEmpty() ? TEXT("—") : *Pb,
+								Wb.IsEmpty() ? TEXT("—") : *Wb,
+								Holder.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(" (%s)"), *Holder));
+						}
+					}
+					Inner->RecordsText = Text;
+				});
+		}
+	});
+}
+
+void AWSSprintGameMode::CreateAthlete(const FString& Name, const FString& Gender)
+{
+	UWSProgressionSubsystem* P = Progression();
+	if (!P)
+	{
+		CareerStatus = TEXT("Online service unavailable");
+		return;
+	}
+	if (Name.TrimStartAndEnd().IsEmpty())
+	{
+		CareerStatus = TEXT("Give your athlete a name");
+		return;
+	}
+	CareerStatus = TEXT("Creating your athlete…");
+
+	TWeakObjectPtr<AWSSprintGameMode> WeakThis(this);
+	P->CreateCareerAthlete(Name.TrimStartAndEnd(), Gender,
+		[WeakThis](bool bOk, const FString& Error)
+		{
+			if (AWSSprintGameMode* Self = WeakThis.Get())
+			{
+				Self->CareerStatus = bOk ? FString() : Error;
+				if (bOk && Self->AppState == EWSAppState::CreateAthlete)
+				{
+					Self->ShowScreen(EWSAppState::Career);
+				}
+			}
+		});
+}
+
+FString AWSSprintGameMode::GetCareerSummary() const
+{
+	const UWSProgressionSubsystem* P = Progression();
+	if (!P || !P->HasCareerAthlete())
+	{
+		return FString();
+	}
+	const FWSCareerAthleteDto& A = P->GetCareerAthlete();
+
+	// Attributes in the order the design lists them, with the two that do
+	// not yet affect any event marked as such rather than quietly implying
+	// they do.
+	static const TCHAR* Keys[] = {TEXT("reaction"), TEXT("acceleration"),
+		TEXT("max_speed"), TEXT("stride_efficiency"), TEXT("stamina"),
+		TEXT("recovery"), TEXT("technique")};
+	static const TCHAR* Labels[] = {TEXT("Reaction"), TEXT("Acceleration"),
+		TEXT("Max speed"), TEXT("Stride efficiency"), TEXT("Stamina"),
+		TEXT("Recovery"), TEXT("Technique")};
+
+	FString Text = FString::Printf(TEXT("%s   %s   %d XP\n\n"),
+		*A.name, *A.career_stage.Replace(TEXT("_"), TEXT(" ")), A.total_xp);
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(Keys); ++Index)
+	{
+		const float Value = A.attributes.FindRef(Keys[Index]);
+		const int32 Filled = FMath::Clamp(FMath::RoundToInt(Value / 5.0f), 0, 20);
+		Text += FString::Printf(TEXT("%-18s %5.1f  %s%s\n"),
+			Labels[Index], Value,
+			*FString::ChrN(Filled, TEXT('|')),
+			*FString::ChrN(20 - Filled, TEXT('.')));
+	}
+	// Honesty: recovery governs no event yet, so training it changes nothing
+	// mechanical. Saying so beats letting a player grind it for nothing.
+	Text += TEXT("\nRecovery does not affect the 100m yet.\n");
+	return Text;
+}
+
+// -- Reaction drill ------------------------------------------------------
+
+void AWSSprintGameMode::StartReactionDrill()
+{
+	AppState = EWSAppState::Training;
+	bDrillArmed = false;
+	bDrillToneFired = false;
+	DrillResultText.Reset();
+	DrillClock = 0.0;
+	// Unpredictable wait, like the starter's pause: a fixed delay would be
+	// trainable by a metronome rather than by reacting.
+	DrillWaitSeconds = 1.2 + FMath::FRand() * 2.6;
+}
+
+void AWSSprintGameMode::DrillPress()
+{
+	if (AppState != EWSAppState::Training || bDrillArmed || bDrillToneFired)
+	{
+		return;
+	}
+	bDrillArmed = true;
+	DrillClock = -DrillWaitSeconds;
+}
+
+void AWSSprintGameMode::DrillRelease()
+{
+	if (AppState != EWSAppState::Training || !bDrillArmed)
+	{
+		return;
+	}
+	bDrillArmed = false;
+
+	if (DrillClock < 0.0)
+	{
+		// Released before the tone. Reported honestly and NOT submitted:
+		// there is no reaction time to claim.
+		DrillResultText = TEXT("Too early — wait for the tone.");
+		bDrillToneFired = false;
+		return;
+	}
+
+	const double ReactionMs = DrillClock * 1000.0;
+	DrillResultText = FString::Printf(TEXT("%.0f ms — submitting…"), ReactionMs);
+
+	TWeakObjectPtr<AWSSprintGameMode> WeakThis(this);
+	if (UWSProgressionSubsystem* P = Progression())
+	{
+		P->SubmitTraining(TEXT("reaction-drill"), ReactionMs,
+			[WeakThis, ReactionMs](bool bOk, const FWSTrainingResponse& Response,
+				const FString& Error)
+			{
+				AWSSprintGameMode* Self = WeakThis.Get();
+				if (!Self)
+				{
+					return;
+				}
+				if (!bOk)
+				{
+					Self->DrillResultText = FString::Printf(
+						TEXT("%.0f ms — %s"), ReactionMs, *Error);
+					return;
+				}
+				// The server's numbers, verbatim: the gain is never the
+				// client's to compute or to round in its own favour.
+				Self->DrillResultText = Response.accepted
+					? FString::Printf(
+						TEXT("%.0f ms · %s +%.2f (now %.1f) · +%d XP · %.2f left today"),
+						ReactionMs, *Response.attribute, Response.attribute_gain,
+						Response.attribute_after, Response.xp_awarded,
+						Response.daily_remaining)
+					: FString::Printf(TEXT("%.0f ms — not counted: %s"),
+						ReactionMs, *Response.rejection_reason);
+			});
+	}
+}
+
+FString AWSSprintGameMode::GetDrillPrompt() const
+{
+	if (bDrillArmed)
+	{
+		return DrillClock < 0.0
+			? TEXT("Hold…")
+			: TEXT("GO!");
+	}
+	return TEXT("Press and hold, release the instant you hear the tone");
+}
+
 void AWSSprintGameMode::StartRace()
 {
 	for (AWSSprintRunner* Runner : Runners)
@@ -337,9 +582,9 @@ void AWSSprintGameMode::SpawnField()
 
 FWSSprintAttributes AWSSprintGameMode::ResolvePlayerAttributes() const
 {
-	// Quick Play defaults match a fresh career athlete (the backend seeds
-	// every attribute at 40), so a Quick Play time is submittable as-is and
-	// the ceiling the server enforces is the ceiling the player feels.
+	// Defaults match a fresh career athlete (the backend seeds every
+	// attribute at 40), so an unsigned-in race is submittable as-is and the
+	// ceiling the player feels is the ceiling the server enforces.
 	FWSSprintAttributes Attributes;
 	Attributes.Reaction = 40.0f;
 	Attributes.Acceleration = 40.0f;
@@ -347,6 +592,34 @@ FWSSprintAttributes AWSSprintGameMode::ResolvePlayerAttributes() const
 	Attributes.StrideEfficiency = 40.0f;
 	Attributes.Stamina = 40.0f;
 	Attributes.Technique = 40.0f;
+
+	// Signed in with a career athlete: race with the SERVER's attributes.
+	// Simulating against numbers the server did not issue is how an honest
+	// run comes back rejected — the client would be racing to a ceiling the
+	// validator has never heard of.
+	const UWSProgressionSubsystem* Progression =
+		GetGameInstance() ? GetGameInstance()->GetSubsystem<UWSProgressionSubsystem>() : nullptr;
+	if (!Progression || !Progression->HasCareerAthlete())
+	{
+		return Attributes;
+	}
+
+	const TMap<FString, float>& Server = Progression->GetCareerAthlete().attributes;
+	auto Read = [&Server](const TCHAR* Key, float& Out)
+	{
+		if (const float* Found = Server.Find(Key))
+		{
+			Out = *Found;
+		}
+	};
+	// Keys are the backend's ATTRIBUTE_KEYS. A key the server did not send
+	// keeps its default rather than silently becoming zero.
+	Read(TEXT("reaction"), Attributes.Reaction);
+	Read(TEXT("acceleration"), Attributes.Acceleration);
+	Read(TEXT("max_speed"), Attributes.MaxSpeed);
+	Read(TEXT("stride_efficiency"), Attributes.StrideEfficiency);
+	Read(TEXT("stamina"), Attributes.Stamina);
+	Read(TEXT("technique"), Attributes.Technique);
 	return Attributes;
 }
 
@@ -404,6 +677,21 @@ void AWSSprintGameMode::Tick(float DeltaSeconds)
 	{
 		State->SetEventClockSeconds(static_cast<float>(FMath::Max(RaceClock, 0.0)));
 	}
+	// The drill runs outside a race, so its clock ticks here rather than in
+	// the race branch above.
+	if (AppState == EWSAppState::Training && bDrillArmed)
+	{
+		const double Previous = DrillClock;
+		DrillClock += DeltaSeconds;
+		if (Previous < 0.0 && DrillClock >= 0.0 && !bDrillToneFired)
+		{
+			bDrillToneFired = true;
+			// The tone IS the stimulus being measured, so it fires from the
+			// clock the reaction is measured against.
+			WSSprintAudio::Play(GetWorld(), GunSound);
+		}
+	}
+
 	TickAudio(DeltaSeconds);
 	TickReplay(DeltaSeconds);
 	UpdateCamera(DeltaSeconds);

@@ -21,7 +21,10 @@ enum class EWSAppState : uint8
 	SignIn,
 	Racing,
 	Leaderboard,
-	Settings
+	Settings,
+	Career,        // athlete, attributes, stage, records
+	CreateAthlete, // first-run career creation
+	Training       // a drill in progress
 };
 
 /** One row of the server's leaderboard. */
@@ -145,6 +148,42 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Race")
 	void SignOut();
 
+	// -- Career ----------------------------------------------------------
+
+	UFUNCTION(BlueprintCallable, Category = "Race")
+	void RefreshCareer();
+
+	/** Create the career athlete from the creation screen. */
+	void CreateAthlete(const FString& Name, const FString& Gender);
+
+	UFUNCTION(BlueprintPure, Category = "Race")
+	FString GetCareerStatus() const { return CareerStatus; }
+
+	UFUNCTION(BlueprintPure, Category = "Race")
+	bool HasCareerAthlete() const;
+
+	/** Athlete summary lines for the career screen. */
+	FString GetCareerSummary() const;
+
+	/** Records and statistics, fetched together with the career screen. */
+	UFUNCTION(BlueprintPure, Category = "Race")
+	FString GetCareerRecordsText() const { return RecordsText; }
+
+	// -- Training --------------------------------------------------------
+
+	/** Begin the reaction drill: hold, wait for the tone, release. */
+	UFUNCTION(BlueprintCallable, Category = "Race")
+	void StartReactionDrill();
+
+	void DrillPress();
+	void DrillRelease();
+
+	UFUNCTION(BlueprintPure, Category = "Race")
+	FString GetDrillPrompt() const;
+
+	UFUNCTION(BlueprintPure, Category = "Race")
+	FString GetDrillResult() const { return DrillResultText; }
+
 	/** Test hook: deliver a submit answer belonging to the PREVIOUS race
 	 * through the real, generation-guarded handler. */
 	void DebugDeliverStaleSubmit();
@@ -161,6 +200,8 @@ public:
 	UFUNCTION(Exec) void WSLeaderboard() { ShowScreen(EWSAppState::Leaderboard); }
 	UFUNCTION(Exec) void WSSettings() { ShowScreen(EWSAppState::Settings); }
 	UFUNCTION(Exec) void WSAccount() { ShowScreen(EWSAppState::SignIn); }
+	UFUNCTION(Exec) void WSCareer() { ShowScreen(EWSAppState::Career); }
+	UFUNCTION(Exec) void WSTraining() { ShowScreen(EWSAppState::Training); }
 	/** Reports the live race/app state into the log, for adb logcat. */
 	UFUNCTION(Exec) void WSStatus();
 
@@ -203,6 +244,7 @@ private:
 	void HandleSubmitOutcome(uint32 Generation, EWSSubmitOutcome Outcome,
 		const FWSResultResponse& Response, const FString& Error);
 	FWSSprintAttributes ResolvePlayerAttributes() const;
+	class UWSProgressionSubsystem* Progression() const;
 
 	UPROPERTY()
 	TObjectPtr<AWSSprintTrack> Track;
@@ -255,6 +297,17 @@ private:
 	bool bPaused = false;
 	TArray<FWSLeaderboardRow> LeaderboardRows;
 	bool bLeaderboardInFlight = false;
+	FString CareerStatus;
+	FString RecordsText;
+
+	// -- Reaction drill state (the first training mini-game) -------------
+	// It reuses the race's start mechanic deliberately: the skill being
+	// trained is the same skill the 100m measures.
+	bool bDrillArmed = false;      // holding, waiting for the tone
+	bool bDrillToneFired = false;
+	double DrillClock = 0.0;       // negative until the tone
+	double DrillWaitSeconds = 0.0; // seeded, so the tone cannot be predicted
+	FString DrillResultText;
 	FString LeaderboardStatus;
 	FString AccountStatus;
 

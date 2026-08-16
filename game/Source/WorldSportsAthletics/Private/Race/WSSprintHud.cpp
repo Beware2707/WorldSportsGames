@@ -237,6 +237,11 @@ public:
 					]
 					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
 					[
+						MenuButton(LOCTEXT("Career", "Career"),
+							FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnCareer))
+					]
+					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
+					[
 						MenuButton(LOCTEXT("Leaderboard", "Leaderboard"),
 							FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnLeaderboard))
 					]
@@ -365,6 +370,195 @@ public:
 						[
 							MenuButton(LOCTEXT("Back", "Back"),
 								FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnBackToMenu), 260.0f)
+						]
+					]
+				]
+
+				// Career: athlete, attributes, records
+				+ SOverlay::Slot()
+				.HAlign(HAlign_Center).VAlign(VAlign_Center)
+				[
+					SNew(SBox).WidthOverride(760.0f).HeightOverride(560.0f)
+					.Visibility(this, &SWSSprintHudPanel::GetCareerVisibility)
+					[
+						SNew(SVerticalBox)
+						+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 10)
+						[
+							SNew(STextBlock).Font(Font(30, true))
+							.ColorAndOpacity(FLinearColor::White)
+							.Text(LOCTEXT("CareerTitle", "Career"))
+						]
+						+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 8)
+						[
+							SNew(STextBlock).Font(Font(16))
+							.ColorAndOpacity(FLinearColor(0.85f, 0.9f, 1.0f))
+							.AutoWrapText(true)
+							.Text(this, &SWSSprintHudPanel::GetCareerStatus)
+						]
+						+ SVerticalBox::Slot().FillHeight(1.0f)
+						[
+							SNew(SScrollBox)
+							+ SScrollBox::Slot()
+							[
+								SNew(STextBlock).Font(Font(17))
+								.ColorAndOpacity(FLinearColor(0.9f, 0.9f, 0.92f))
+								.Text(this, &SWSSprintHudPanel::GetCareerSummary)
+							]
+							+ SScrollBox::Slot()
+							[
+								SNew(STextBlock).Font(Font(16))
+								.ColorAndOpacity(FLinearColor(0.75f, 0.85f, 1.0f))
+								.Text(this, &SWSSprintHudPanel::GetRecordsText)
+							]
+						]
+						+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0, 10, 0, 0)
+						[
+							SNew(SHorizontalBox)
+							+ SHorizontalBox::Slot().AutoWidth()
+							[
+								MenuButton(LOCTEXT("Train", "Train"),
+									FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnTrain), 200.0f)
+							]
+							+ SHorizontalBox::Slot().AutoWidth().Padding(8, 0)
+							[
+								MenuButton(LOCTEXT("CreateAthleteBtn", "New athlete"),
+									FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnShowCreateAthlete), 240.0f)
+							]
+							+ SHorizontalBox::Slot().AutoWidth()
+							[
+								MenuButton(LOCTEXT("Back", "Back"),
+									FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnBackToMenu), 180.0f)
+							]
+						]
+					]
+				]
+
+				// Create athlete
+				+ SOverlay::Slot()
+				.HAlign(HAlign_Center).VAlign(VAlign_Center)
+				[
+					SNew(SBox).WidthOverride(560.0f)
+					.Visibility(this, &SWSSprintHudPanel::GetCreateAthleteVisibility)
+					[
+						SNew(SVerticalBox)
+						+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 12)
+						[
+							SNew(STextBlock).Font(Font(30, true))
+							.ColorAndOpacity(FLinearColor::White)
+							.Text(LOCTEXT("NewAthlete", "New athlete"))
+						]
+						+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 10)
+						[
+							SNew(STextBlock).Font(Font(15))
+							.ColorAndOpacity(FLinearColor(0.7f, 0.78f, 0.9f))
+							.AutoWrapText(true)
+							.Text(LOCTEXT("NewAthleteWhy",
+								"Every attribute starts at 40 and rises only through training the "
+								"server validates. Your athlete name appears on leaderboards."))
+						]
+						+ SVerticalBox::Slot().AutoHeight().Padding(0, 4)
+						[
+							SAssignNew(AthleteNameBox, SEditableTextBox)
+							.Font(Font(20))
+							.HintText(LOCTEXT("AthleteName", "Athlete name"))
+						]
+						+ SVerticalBox::Slot().AutoHeight().Padding(0, 12, 0, 4)
+						[
+							SNew(STextBlock).Font(Font(16))
+							.ColorAndOpacity(FLinearColor(0.8f, 0.85f, 0.95f))
+							.Text(LOCTEXT("PickCategory", "Pick a category to create:"))
+						]
+						+ SVerticalBox::Slot().AutoHeight()
+						[
+							SNew(SHorizontalBox)
+							+ SHorizontalBox::Slot().AutoWidth()
+							[
+								MenuButton(LOCTEXT("GenderF", "Women"),
+									FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnGenderF), 170.0f)
+							]
+							+ SHorizontalBox::Slot().AutoWidth().Padding(8, 0)
+							[
+								MenuButton(LOCTEXT("GenderM", "Men"),
+									FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnGenderM), 170.0f)
+							]
+							+ SHorizontalBox::Slot().AutoWidth()
+							[
+								MenuButton(LOCTEXT("GenderX", "Open"),
+									FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnGenderX), 170.0f)
+							]
+						]
+						+ SVerticalBox::Slot().AutoHeight().Padding(0, 10)
+						[
+							SNew(STextBlock).Font(Font(16))
+							.ColorAndOpacity(FLinearColor(0.85f, 0.9f, 1.0f))
+							.AutoWrapText(true)
+							.Text(this, &SWSSprintHudPanel::GetCareerStatus)
+						]
+						+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
+						[
+							MenuButton(LOCTEXT("Back", "Back"),
+								FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnCareer), 220.0f)
+						]
+					]
+				]
+
+				// Training: the reaction drill
+				+ SOverlay::Slot()
+				.HAlign(HAlign_Center).VAlign(VAlign_Center)
+				[
+					SNew(SBox).WidthOverride(700.0f)
+					.Visibility(this, &SWSSprintHudPanel::GetTrainingVisibility)
+					[
+						SNew(SVerticalBox)
+						+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0, 0, 0, 10)
+						[
+							SNew(STextBlock).Font(Font(30, true))
+							.ColorAndOpacity(FLinearColor::White)
+							.Text(LOCTEXT("ReactionDrill", "Reaction Drill"))
+						]
+						+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0, 0, 0, 18)
+						[
+							SNew(STextBlock).Font(Font(20))
+							.ColorAndOpacity(FLinearColor(0.85f, 0.9f, 1.0f))
+							.Justification(ETextJustify::Center)
+							.AutoWrapText(true)
+							.Text(this, &SWSSprintHudPanel::GetDrillPrompt)
+						]
+						+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0, 0, 0, 16)
+						[
+							SNew(SBox).WidthOverride(420.0f).HeightOverride(150.0f)
+							[
+								SNew(SButton)
+								.HAlign(HAlign_Center).VAlign(VAlign_Center)
+								.OnPressed(FSimpleDelegate::CreateSP(this, &SWSSprintHudPanel::OnDrillPress))
+								.OnReleased(FSimpleDelegate::CreateSP(this, &SWSSprintHudPanel::OnDrillRelease))
+								[
+									SNew(STextBlock).Font(Font(24, true))
+									.Text(LOCTEXT("HoldHere", "HOLD"))
+								]
+							]
+						]
+						+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0, 0, 0, 16)
+						[
+							SNew(STextBlock).Font(Font(18))
+							.ColorAndOpacity(FLinearColor(0.9f, 0.95f, 1.0f))
+							.Justification(ETextJustify::Center)
+							.AutoWrapText(true)
+							.Text(this, &SWSSprintHudPanel::GetDrillResult)
+						]
+						+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
+						[
+							SNew(SHorizontalBox)
+							+ SHorizontalBox::Slot().AutoWidth()
+							[
+								MenuButton(LOCTEXT("AgainDrill", "Again"),
+									FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnTrain), 200.0f)
+							]
+							+ SHorizontalBox::Slot().AutoWidth().Padding(8, 0)
+							[
+								MenuButton(LOCTEXT("BackCareer", "Back"),
+									FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnCareer), 200.0f)
+							]
 						]
 					]
 				]
@@ -922,6 +1116,98 @@ private:
 		return FReply::Handled();
 	}
 
+	EVisibility GetCareerVisibility() const { return VisibleWhen(EWSAppState::Career); }
+	EVisibility GetCreateAthleteVisibility() const { return VisibleWhen(EWSAppState::CreateAthlete); }
+	EVisibility GetTrainingVisibility() const { return VisibleWhen(EWSAppState::Training); }
+
+	FText GetCareerStatus() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		return GameModePtr ? FText::FromString(GameModePtr->GetCareerStatus()) : FText::GetEmpty();
+	}
+
+	FText GetCareerSummary() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		if (!GameModePtr)
+		{
+			return FText::GetEmpty();
+		}
+		// No athlete is stated plainly rather than drawn as a row of zeros.
+		return GameModePtr->HasCareerAthlete()
+			? FText::FromString(GameModePtr->GetCareerSummary())
+			: LOCTEXT("NoAthlete", "No career athlete yet - create one to train and rank.");
+	}
+
+	FText GetRecordsText() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		return GameModePtr ? FText::FromString(GameModePtr->GetCareerRecordsText()) : FText::GetEmpty();
+	}
+
+	FText GetDrillPrompt() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		return GameModePtr ? FText::FromString(GameModePtr->GetDrillPrompt()) : FText::GetEmpty();
+	}
+
+	FText GetDrillResult() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		return GameModePtr ? FText::FromString(GameModePtr->GetDrillResult()) : FText::GetEmpty();
+	}
+
+	FReply OnCareer()
+	{
+		if (AWSSprintGameMode* GameModePtr = Mode())
+		{
+			GameModePtr->ShowScreen(EWSAppState::Career);
+			GameModePtr->RefreshCareer();
+		}
+		return FReply::Handled();
+	}
+
+	FReply OnShowCreateAthlete() { return Show(EWSAppState::CreateAthlete); }
+
+	FReply OnTrain()
+	{
+		if (AWSSprintGameMode* GameModePtr = Mode())
+		{
+			GameModePtr->StartReactionDrill();
+		}
+		return FReply::Handled();
+	}
+
+	void OnDrillPress()
+	{
+		if (AWSSprintGameMode* GameModePtr = Mode())
+		{
+			GameModePtr->DrillPress();
+		}
+	}
+
+	void OnDrillRelease()
+	{
+		if (AWSSprintGameMode* GameModePtr = Mode())
+		{
+			GameModePtr->DrillRelease();
+		}
+	}
+
+	FReply CreateAthleteWith(const TCHAR* Gender)
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		if (GameModePtr && AthleteNameBox.IsValid())
+		{
+			GameModePtr->CreateAthlete(AthleteNameBox->GetText().ToString(), Gender);
+		}
+		return FReply::Handled();
+	}
+
+	FReply OnGenderF() { return CreateAthleteWith(TEXT("F")); }
+	FReply OnGenderM() { return CreateAthleteWith(TEXT("M")); }
+	FReply OnGenderX() { return CreateAthleteWith(TEXT("X")); }
+
 	FReply OnLeaderboard() { return Show(EWSAppState::Leaderboard); }
 	FReply OnAccount() { return Show(EWSAppState::SignIn); }
 	FReply OnSettings() { return Show(EWSAppState::Settings); }
@@ -1021,6 +1307,7 @@ private:
 	TSharedPtr<SEditableTextBox> EmailBox;
 	TSharedPtr<SEditableTextBox> PasswordBox;
 	TSharedPtr<SEditableTextBox> NameBox;
+	TSharedPtr<SEditableTextBox> AthleteNameBox;
 };
 
 void UWSSprintHud::BindGameMode(AWSSprintGameMode* InGameMode)

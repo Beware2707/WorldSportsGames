@@ -97,6 +97,46 @@ struct WORLDSPORTS_API FWSAnalyticsBatchResponse
 	TArray<FWSAnalyticsRejection> rejected;
 };
 
+/**
+ * backend CareerAthleteOut. STRICTLY READ-ONLY on the client: attributes,
+ * XP and stage move only through validated results and validated training
+ * on the server, and this struct exists to display them and to feed the
+ * simulation the same numbers the server will validate against.
+ */
+USTRUCT(BlueprintType)
+struct WORLDSPORTS_API FWSCareerAthleteDto
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") int32 id = 0;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") FString name;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") FString gender;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") FString career_stage;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") int32 total_xp = 0;
+	/** Keyed by the backend's ATTRIBUTE_KEYS. */
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") TMap<FString, float> attributes;
+};
+
+/** backend TrainingOut — the server's answer to a drill. */
+USTRUCT(BlueprintType)
+struct WORLDSPORTS_API FWSTrainingResponse
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") bool accepted = false;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") FString rejection_reason;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") FString drill;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") FString attribute;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") float quality = 0.0f;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") float attribute_before = 0.0f;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") float attribute_after = 0.0f;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") float attribute_gain = 0.0f;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") int32 xp_awarded = 0;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") int32 total_xp = 0;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") FString career_stage;
+	UPROPERTY(BlueprintReadOnly, Category = "WorldSports") float daily_remaining = 0.0f;
+};
+
 USTRUCT(BlueprintType)
 struct WORLDSPORTS_API FWSEventCatalogueEntry
 {

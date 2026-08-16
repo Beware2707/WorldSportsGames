@@ -94,6 +94,55 @@ bool FWSSprintCeilingCalibrationTest::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSSprintLopsidedCeilingTest,
+	"WorldSports.Sprint.LopsidedAttributesRespectTheCeiling",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+bool FWSSprintLopsidedCeilingTest::RunTest(const FString&)
+{
+	// Training raises ONE attribute at a time, so real athletes are lopsided.
+	// The server's ceiling uses the MEAN of the governing attributes, so a
+	// simulation that read max_speed alone would let a specialist run a time
+	// the server then rejects — the game calling an honest player a cheat.
+	const TArray<FWSSprintAttributes> Lopsided = []
+	{
+		TArray<FWSSprintAttributes> All;
+		FWSSprintAttributes Sprinter;   // all the training went into speed
+		Sprinter.Reaction = 40.0f; Sprinter.Acceleration = 40.0f;
+		Sprinter.MaxSpeed = 95.0f; Sprinter.StrideEfficiency = 40.0f;
+		Sprinter.Stamina = 40.0f; Sprinter.Technique = 40.0f;
+		All.Add(Sprinter);
+
+		FWSSprintAttributes Starter;    // all of it into the start
+		Starter.Reaction = 95.0f; Starter.Acceleration = 95.0f;
+		Starter.MaxSpeed = 40.0f; Starter.StrideEfficiency = 40.0f;
+		Starter.Stamina = 40.0f; Starter.Technique = 40.0f;
+		All.Add(Starter);
+
+		FWSSprintAttributes Grinder;    // one attribute maxed, rest untouched
+		Grinder.Reaction = 40.0f; Grinder.Acceleration = 40.0f;
+		Grinder.MaxSpeed = 99.0f; Grinder.StrideEfficiency = 40.0f;
+		Grinder.Stamina = 99.0f; Grinder.Technique = 99.0f;
+		All.Add(Grinder);
+		return All;
+	}();
+
+	for (const FWSSprintAttributes& Attributes : Lopsided)
+	{
+		const double Ceiling = ServerCeiling(Attributes.GoverningMean());
+		for (const uint32 Seed : {3u, 77u, 4242u})
+		{
+			const FWSSprintOutcome Outcome = FWSSprintSimulation::RunTrace(
+				Attributes, Seed, BestRealisticTrace(Attributes, Seed));
+			TestTrue(TEXT("finished"), Outcome.bFinished);
+			TestTrue(FString::Printf(
+					TEXT("mean %.1f seed %u: %.3f must not beat ceiling %.3f"),
+					Attributes.GoverningMean(), Seed, Outcome.TimeSeconds, Ceiling),
+				Outcome.TimeSeconds >= Ceiling - 0.009);
+		}
+	}
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSSprintSkillDecidesTest,
 	"WorldSports.Sprint.CadenceAccuracyDecidesTheRace",
 	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
