@@ -212,7 +212,7 @@ void AWSSprintGameMode::RefreshLeaderboard()
 	Online->Request(TEXT("GET"),
 		FString::Printf(
 			TEXT("/api/v1/career/leaderboard?event=%s&scope=global&period=all_time"),
-			*CurrentEvent().Code),
+			*SelectedEventCodeOrDefault()),
 		nullptr,
 		[WeakThis](const FWSHttpResult& Result)
 		{
@@ -432,34 +432,88 @@ void AWSSprintGameMode::CycleEvent(int32 Delta)
 	{
 		return;
 	}
-	const TArray<FWSSprintEventSpec>& Table = WSSprintEvents::All();
-	int32 Index = 0;
-	for (int32 I = 0; I < Table.Num(); ++I)
+	const TArray<FString> Codes = AllEventCodes();
+	if (Codes.Num() == 0)
 	{
-		if (Table[I].Code == CurrentEvent().Code)
-		{
-			Index = I;
-			break;
-		}
+		return;
 	}
-	Index = (Index + Delta % Table.Num() + Table.Num()) % Table.Num();
-	SelectedEventCode = Table[Index].Code;
+	const int32 Current = FMath::Max(0, Codes.IndexOfByKey(SelectedEventCodeOrDefault()));
+	const int32 Index = (Current + Delta % Codes.Num() + Codes.Num()) % Codes.Num();
+	SelectedEventCode = Codes[Index];
 	// The board on screen is for the event you were looking at, not the one
 	// you just switched to.
 	LeaderboardRows.Reset();
 	LeaderboardStatus = FString();
 }
 
+const FWSPaceEventSpec& AWSSprintGameMode::CurrentPaceEvent() const
+{
+	return WSPaceEvents::Find(SelectedEventCode);
+}
+
+bool AWSSprintGameMode::IsPaceEvent() const
+{
+	// Membership, not a naming convention: an event is paced because it is
+	// in the paced table, not because its code happens to start with a word.
+	for (const FWSPaceEventSpec& Spec : WSPaceEvents::All())
+	{
+		if (Spec.Code == SelectedEventCode)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+FString AWSSprintGameMode::SelectedEventCodeOrDefault() const
+{
+	return SelectedEventCode.IsEmpty() ? FString(DefaultEventCode) : SelectedEventCode;
+}
+
+double AWSSprintGameMode::SelectedDistanceMetres() const
+{
+	return IsPaceEvent() ? CurrentPaceEvent().DistanceMetres : CurrentEvent().DistanceMetres;
+}
+
+int32 AWSSprintGameMode::SelectedSplitCount() const
+{
+	return IsPaceEvent() ? CurrentPaceEvent().SplitCount : CurrentEvent().SplitCount;
+}
+
 FString AWSSprintGameMode::GetSelectedEventName() const
 {
-	return CurrentEvent().DisplayName;
+	return IsPaceEvent() ? CurrentPaceEvent().DisplayName : CurrentEvent().DisplayName;
 }
 
 void AWSSprintGameMode::SelectEvent(const FString& EventCode)
 {
-	// Only events the table knows: an unknown code would race a distance the
+	// Only events a table knows: an unknown code would race a distance the
 	// server cannot validate a time for.
+	for (const FWSPaceEventSpec& Spec : WSPaceEvents::All())
+	{
+		if (Spec.Code == EventCode)
+		{
+			SelectedEventCode = Spec.Code;
+			return;
+		}
+	}
 	SelectedEventCode = WSSprintEvents::Find(EventCode).Code;
+}
+
+TArray<FString> AWSSprintGameMode::AllEventCodes()
+{
+	// The menu offers every running event there is, sprints first, in the
+	// order the tables declare them.
+	TArray<FString> Codes;
+	for (const FWSSprintEventSpec& Spec : WSSprintEvents::All())
+	{
+		Codes.Add(Spec.Code);
+	}
+	for (const FWSPaceEventSpec& Spec : WSPaceEvents::All())
+	{
+		Codes.Add(Spec.Code);
+	}
+	return Codes;
 }
 
 UWSTournamentSubsystem* AWSSprintGameMode::Tournaments() const
@@ -479,7 +533,7 @@ void AWSSprintGameMode::EnterTournament()
 	}
 	TournamentStatus = TEXT("Entering…");
 	TWeakObjectPtr<AWSSprintGameMode> WeakThis(this);
-	T->EnterOrResume(CurrentEvent().Code, [WeakThis](bool bOk, const FString& Error)
+	T->EnterOrResume(SelectedEventCodeOrDefault(), [WeakThis](bool bOk, const FString& Error)
 	{
 		if (AWSSprintGameMode* Self = WeakThis.Get())
 		{
@@ -579,15 +633,20 @@ void AWSSprintGameMode::SubmitTournamentRound()
 	}
 
 	FWSEventResult Result;
-	Result.EventCode = CurrentEvent().Code;
+	Result.EventCode = SelectedEventCodeOrDefault();
 	Result.ValueNum = Outcome.TimeSeconds;
-	Result.bHasReactionMs = true;
+	// Events without blocks have no reaction to report, and reporting one
+	// would be a measurement the sport never took.
+	Result.bHasReactionMs = !IsPaceEvent();
 	Result.ReactionMs = Outcome.ReactionMs;
 	Result.Splits = Outcome.Splits;
-	Result.bHasWind = true;
+	// No wind is recorded beyond 200m, so none is claimed.
+	Result.bHasWind = !IsPaceEvent();
 	Result.Wind = Outcome.Wind;
 	Result.RngSeed = FString::Printf(TEXT("%u"), RaceSeed);
-	Result.InputDigest = FWSSprintSimulation::DigestTrace(PlayerTrace);
+	Result.InputDigest = IsPaceEvent()
+		? FWSMiddleDistanceSimulation::DigestTrace(PlayerPaceTrace)
+		: FWSSprintSimulation::DigestTrace(PlayerTrace);
 
 	bAwaitingServer = true;
 	SetPhase(EWSEventPhase::Submit);
@@ -746,8 +805,7 @@ void AWSSprintGameMode::StartRace()
 	if (Track)
 	{
 		Track->SetRaceDistance(
-			static_cast<float>(CurrentEvent().DistanceMetres),
-			CurrentEvent().SplitCount);
+			static_cast<float>(SelectedDistanceMetres()), SelectedSplitCount());
 	}
 
 	for (AWSSprintRunner* Runner : Runners)
@@ -761,6 +819,8 @@ void AWSSprintGameMode::StartRace()
 	PlayerRunner = nullptr;
 	Standings.Reset();
 	PlayerTrace.Reset();
+	PlayerPaceTrace.Reset();
+	PlayerEffort = 0.0;
 	ServerVerdict.Reset();
 	ReplayFrames.Reset();
 	ReplayCursor = INDEX_NONE;
@@ -823,8 +883,22 @@ void AWSSprintGameMode::SpawnField()
 		}
 		if (Lane == PlayerLane)
 		{
-			Runner->InitializeRace(ResolvePlayerAttributes(), RaceSeed, Lane,
-				TEXT("You"), /*bIsPlayer=*/true, CurrentEvent());
+			if (IsPaceEvent())
+			{
+				Runner->InitializePaceRace(ResolvePlayerAttributes(), RaceSeed, Lane,
+					TEXT("You"), /*bIsPlayer=*/true, CurrentPaceEvent());
+				// A paced race opens at a settled effort rather than at a
+				// standstill; the player then decides what to do with it.
+				PlayerEffort = 0.55;
+				const FWSPaceInputEvent Opening{0.0, EWSPaceInputType::SetEffort, PlayerEffort};
+				PlayerPaceTrace.Add(Opening);
+				Runner->PushPaceInput(Opening);
+			}
+			else
+			{
+				Runner->InitializeRace(ResolvePlayerAttributes(), RaceSeed, Lane,
+					TEXT("You"), /*bIsPlayer=*/true, CurrentEvent());
+			}
 			PlayerRunner = Runner;
 		}
 		else
@@ -837,12 +911,27 @@ void AWSSprintGameMode::SpawnField()
 			// Distinct per-opponent seed for their INPUT only; the race seed
 			// still governs shared conditions.
 			const uint32 InputSeed = RaceSeed + 1013u * (OpponentIndex + 1);
-			Runner->InitializeRace(Attributes, RaceSeed, Lane,
-				OpponentNames[OpponentIndex % UE_ARRAY_COUNT(OpponentNames)],
-				/*bIsPlayer=*/false, CurrentEvent());
-			Runner->PushTrace(FWSSprintSimulation::GenerateAITrace(
-				Attributes, RaceSeed, InputSeed, Level.ReactionMeanMs,
-				Level.ReactionSpreadMs, Level.Consistency, CurrentEvent()));
+			const FString RivalName =
+				OpponentNames[OpponentIndex % UE_ARRAY_COUNT(OpponentNames)];
+			if (IsPaceEvent())
+			{
+				Runner->InitializePaceRace(Attributes, RaceSeed, Lane, RivalName,
+					/*bIsPlayer=*/false, CurrentPaceEvent());
+				// The rival runs the SAME simulation from a pace plan of its
+				// own — never a scripted finish time. Consistency is what a
+				// difficulty tier is allowed to change, here as in the sprint.
+				Runner->PushPaceTrace(FWSMiddleDistanceSimulation::GenerateAITrace(
+					Attributes, RaceSeed, InputSeed, Level.Consistency,
+					CurrentPaceEvent()));
+			}
+			else
+			{
+				Runner->InitializeRace(Attributes, RaceSeed, Lane, RivalName,
+					/*bIsPlayer=*/false, CurrentEvent());
+				Runner->PushTrace(FWSSprintSimulation::GenerateAITrace(
+					Attributes, RaceSeed, InputSeed, Level.ReactionMeanMs,
+					Level.ReactionSpreadMs, Level.Consistency, CurrentEvent()));
+			}
 			++OpponentIndex;
 		}
 		Runners.Add(Runner);
@@ -1031,7 +1120,7 @@ void AWSSprintGameMode::UpdateCamera(float DeltaSeconds)
 		// Square onto the line from the side — where a photo finish reads.
 		// The line is where THIS event finishes, not where the 100m did.
 		Desired = FVector(
-			static_cast<float>(CurrentEvent().DistanceMetres) * 100.0f + 260.0f,
+			static_cast<float>(SelectedDistanceMetres()) * 100.0f + 260.0f,
 			LaneY - 900.0f, 320.0f);
 		DesiredRotation = FRotator(-9.0f, 108.0f, 0.0f);
 		break;
@@ -1277,15 +1366,20 @@ void AWSSprintGameMode::SubmitPlayerResult()
 	}
 
 	FWSEventResult Result;
-	Result.EventCode = CurrentEvent().Code;
+	Result.EventCode = SelectedEventCodeOrDefault();
 	Result.ValueNum = Outcome.TimeSeconds;
-	Result.bHasReactionMs = true;
+	// Events without blocks have no reaction to report, and reporting one
+	// would be a measurement the sport never took.
+	Result.bHasReactionMs = !IsPaceEvent();
 	Result.ReactionMs = Outcome.ReactionMs;
 	Result.Splits = Outcome.Splits;
-	Result.bHasWind = true;
+	// No wind is recorded beyond 200m, so none is claimed.
+	Result.bHasWind = !IsPaceEvent();
 	Result.Wind = Outcome.Wind;
 	Result.RngSeed = FString::Printf(TEXT("%u"), RaceSeed);
-	Result.InputDigest = FWSSprintSimulation::DigestTrace(PlayerTrace);
+	Result.InputDigest = IsPaceEvent()
+		? FWSMiddleDistanceSimulation::DigestTrace(PlayerPaceTrace)
+		: FWSSprintSimulation::DigestTrace(PlayerTrace);
 
 	bAwaitingServer = true;
 	SetPhase(EWSEventPhase::Submit);
@@ -1369,6 +1463,14 @@ void AWSSprintGameMode::PlayerPress()
 	{
 		return;
 	}
+	if (IsPaceEvent())
+	{
+		// Holding asks for more effort. There are no blocks to leave and no
+		// rhythm to match: the decision is how hard to run, and when.
+		PushPlayerEffort(FMath::Min(1.0, PlayerEffort + 0.12));
+		return;
+	}
+
 	// Still in the blocks — whatever the phase — so this press is the hold.
 	// Gating this on the Ready phase used to strand any player whose first
 	// touch landed after the gun: they could never release.
@@ -1392,6 +1494,16 @@ void AWSSprintGameMode::PlayerPress()
 
 void AWSSprintGameMode::PlayerRelease()
 {
+	if (IsPaceEvent())
+	{
+		if (PlayerRunner && bRaceRunning && !bPaused)
+		{
+			// Letting go eases off. Easing is not free recovery — the tank
+			// refills slowly — but it is how a race is saved.
+			PushPlayerEffort(FMath::Max(0.35, PlayerEffort - 0.10));
+		}
+		return;
+	}
 	if (!bHolding || !PlayerRunner || bPaused || PlayerRunner->GetState().bReleased)
 	{
 		return;
@@ -1410,7 +1522,32 @@ void AWSSprintGameMode::PlayerLean()
 	{
 		return;
 	}
+	if (IsPaceEvent())
+	{
+		// The dip at the line becomes the kick: spend whatever is left.
+		// Early it costs, which is the decision the event is built on.
+		const FWSPaceInputEvent Kick{FMath::Max(RaceClock, 0.0), EWSPaceInputType::Kick, 0.0};
+		PlayerPaceTrace.Add(Kick);
+		PlayerRunner->PushPaceInput(Kick);
+		PlayerEffort = 1.0;
+		return;
+	}
 	const FWSSprintInputEvent Event{RaceClock, EWSSprintInputType::Lean};
 	PlayerTrace.Add(Event);
 	PlayerRunner->PushInput(Event);
+}
+
+void AWSSprintGameMode::PushPlayerEffort(double Effort)
+{
+	if (!PlayerRunner)
+	{
+		return;
+	}
+	PlayerEffort = FMath::Clamp(Effort, 0.35, 1.0);
+	// Times are clamped at the gun: an effort chosen during the countdown
+	// is a plan, not a head start.
+	const FWSPaceInputEvent Event{
+		FMath::Max(RaceClock, 0.0), EWSPaceInputType::SetEffort, PlayerEffort};
+	PlayerPaceTrace.Add(Event);
+	PlayerRunner->PushPaceInput(Event);
 }

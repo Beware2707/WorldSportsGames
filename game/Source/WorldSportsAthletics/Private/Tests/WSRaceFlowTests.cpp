@@ -6,6 +6,7 @@
 #include "Race/WSSprintGameMode.h"
 #include "Race/WSSprintRunner.h"
 #include "Race/WSSprintTrack.h"
+#include "Simulation/WSPaceSimulation.h"
 #include "Simulation/WSSprintEvents.h"
 #include "Tests/AutomationCommon.h"
 
@@ -270,6 +271,97 @@ bool FWSRaceEventSelectionTest::RunTest(const FString&)
 		for (const AWSSprintRunner* Runner : Harness.GameMode->GetRunners())
 		{
 			TestEqual(FString::Printf(TEXT("%s: every runner ran the distance"), *Spec.Code),
+				Runner->GetRaceDistance(), Spec.DistanceMetres);
+		}
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSPaceRaceFlowTest,
+	"WorldSports.Race.MiddleDistanceRacesEndToEnd",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+bool FWSPaceRaceFlowTest::RunTest(const FString&)
+{
+	// The 800m and 1500m through the SAME game mode: no blocks to leave, no
+	// rhythm to match, and a finish that has to arrive on its own. This is
+	// the check that the events are playable and not merely simulated.
+	for (const FWSPaceEventSpec& Spec : WSPaceEvents::All())
+	{
+		FRaceHarness Harness(/*bStartRace=*/false);
+		if (!TestNotNull(TEXT("game mode spawned"), Harness.GameMode))
+		{
+			return false;
+		}
+		Harness.GameMode->SelectEvent(Spec.Code);
+		TestTrue(FString::Printf(TEXT("%s is a paced event"), *Spec.Code),
+			Harness.GameMode->IsPaceEvent());
+		Harness.GameMode->StartQuickPlay();
+
+		// Hold a steady effort, then kick once the closing stretch arrives.
+		bool bKicked = false;
+		const double Budget = 40.0 + 1.4 * Spec.CeilingAtZero;
+		Harness.RunFor(Budget, 1.0 / 60.0, [&](double Clock)
+		{
+			AWSSprintRunner* Runner = Harness.GameMode->GetPlayerRunner();
+			if (!Runner || Clock < 0.0)
+			{
+				return;
+			}
+			const FWSPaceState& Pace = Runner->GetPaceState();
+			// Nudge effort toward what this athlete can sustain — the
+			// judgement the event is about, played competently.
+			if (Pace.Effort < Pace.SustainableEffort - 0.02)
+			{
+				Harness.GameMode->PlayerPress();
+			}
+			else if (Pace.Effort > Pace.SustainableEffort + 0.02)
+			{
+				Harness.GameMode->PlayerRelease();
+			}
+			if (!bKicked &&
+				Pace.Distance >= Spec.DistanceMetres * Spec.KickWindowFraction)
+			{
+				Harness.GameMode->PlayerLean(); // the kick
+				bKicked = true;
+			}
+		});
+
+		AWSSprintRunner* Player = Harness.GameMode->GetPlayerRunner();
+		if (!TestNotNull(TEXT("player runner exists"), Player))
+		{
+			return false;
+		}
+		TestTrue(FString::Printf(TEXT("%s: paced runner"), *Spec.Code),
+			Player->IsPaceEvent());
+		TestTrue(FString::Printf(TEXT("%s: player finished"), *Spec.Code),
+			Player->HasFinished());
+		TestFalse(FString::Printf(TEXT("%s: no false start without blocks"), *Spec.Code),
+			Player->HasFalseStarted());
+
+		const FWSRaceOutcome Outcome = Player->GetOutcome();
+		TestEqual(FString::Printf(TEXT("%s: split count"), *Spec.Code),
+			Outcome.Splits.Num(), Spec.SplitCount);
+		// No blocks and no measured wind: both must be absent rather than
+		// invented, because the server's row says this event has neither.
+		TestEqual(FString::Printf(TEXT("%s: no reaction reported"), *Spec.Code),
+			Outcome.ReactionMs, 0.0);
+		TestEqual(FString::Printf(TEXT("%s: no wind reported"), *Spec.Code),
+			Outcome.Wind, 0.0);
+		TestTrue(FString::Printf(TEXT("%s: time %.2f is plausible"),
+				*Spec.Code, Outcome.TimeSeconds),
+			Outcome.TimeSeconds > Spec.MinPlausibleSeconds &&
+				Outcome.TimeSeconds < Spec.MaxPlausibleSeconds);
+
+		// The whole field ran it, and every rival ran the same distance
+		// through the same simulation rather than to a handed-down time.
+		TestEqual(FString::Printf(TEXT("%s: full field"), *Spec.Code),
+			Harness.GameMode->GetStandings().Num(), AWSSprintTrack::LaneCount);
+		for (const AWSSprintRunner* Runner : Harness.GameMode->GetRunners())
+		{
+			TestTrue(FString::Printf(TEXT("%s: rival is simulated, not scripted"),
+					*Spec.Code),
+				Runner->IsPaceEvent() && !Runner->IsScripted());
+			TestEqual(FString::Printf(TEXT("%s: same distance for all"), *Spec.Code),
 				Runner->GetRaceDistance(), Spec.DistanceMetres);
 		}
 	}

@@ -159,6 +159,17 @@ public:
 				]
 			]
 
+			// --- The paced events' readout, where the cadence band sits --
+			+ SOverlay::Slot()
+			.HAlign(HAlign_Center).VAlign(VAlign_Bottom)
+			.Padding(0.0f, 0.0f, 0.0f, 96.0f)
+			[
+				SNew(STextBlock).Font(Font(24, true))
+				.ColorAndOpacity(FLinearColor(0.92f, 0.92f, 0.96f))
+				.Visibility(this, &SWSSprintHudPanel::GetPaceVisibility)
+				.Text(this, &SWSSprintHudPanel::GetPaceText)
+			]
+
 			// --- Bottom: stamina + splits -------------------------------
 			+ SOverlay::Slot()
 			.HAlign(HAlign_Fill).VAlign(VAlign_Bottom)
@@ -917,10 +928,58 @@ private:
 
 	EVisibility GetBandVisibility() const
 	{
+		// A paced event has no cadence to match. Showing a rhythm band there
+		// would be telling the player to do something the simulation does
+		// not measure.
+		AWSSprintGameMode* GameModePtr = Mode();
+		if (GameModePtr && GameModePtr->IsPaceEvent())
+		{
+			return EVisibility::Collapsed;
+		}
 		const FWSRaceState* State = PlayerState();
 		return State && State->bReleased && !State->bFinished && !State->bFalseStart
 			? EVisibility::HitTestInvisible
 			: EVisibility::Collapsed;
+	}
+
+	/** What the paced events show instead: effort against the pace the
+	 * athlete can actually hold, and what is left in the tank. */
+	EVisibility GetPaceVisibility() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		if (!GameModePtr || !GameModePtr->IsPaceEvent())
+		{
+			return EVisibility::Collapsed;
+		}
+		const FWSRaceState* State = PlayerState();
+		return State && !State->bFinished
+			? EVisibility::HitTestInvisible
+			: EVisibility::Collapsed;
+	}
+
+	FText GetPaceText() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		AWSSprintRunner* Runner = GameModePtr ? GameModePtr->GetPlayerRunner() : nullptr;
+		if (!Runner || !Runner->IsPaceEvent())
+		{
+			return FText::GetEmpty();
+		}
+		const FWSPaceState& Pace = Runner->GetPaceState();
+		// The judgement the event is built on, stated plainly: how hard you
+		// are running against how hard you can keep running. Above the line
+		// costs the tank; below it slowly refills.
+		const TCHAR* Verdict = Pace.bWalled
+			? TEXT("EMPTY")
+			: (Pace.Effort > Pace.SustainableEffort + 0.03 ? TEXT("BURNING")
+				: (Pace.Effort < Pace.SustainableEffort - 0.03 ? TEXT("EASING")
+					: TEXT("HOLDING")));
+		return FText::FromString(FString::Printf(
+			TEXT("%s   effort %d%%   sustainable %d%%%s"),
+			Verdict,
+			FMath::RoundToInt(Pace.Effort * 100.0),
+			FMath::RoundToInt(Pace.SustainableEffort * 100.0),
+			Pace.bKicked ? TEXT("   KICKED") : TEXT("")));
 	}
 
 	/** Marker offset encodes cadence error: left = slow, right = fast. */
@@ -971,7 +1030,12 @@ private:
 			return FText::GetEmpty();
 		}
 		const int32 Percent = FMath::RoundToInt((1.0 - State->Fatigue) * 100.0);
-		return FText::FromString(FString::Printf(TEXT("Stamina %d%%"), Percent));
+		AWSSprintGameMode* GameModePtr = Mode();
+		// In a paced race this bar is the energy budget, not general
+		// freshness, and calling it the same thing would mislead.
+		const TCHAR* Label = GameModePtr && GameModePtr->IsPaceEvent()
+			? TEXT("Tank") : TEXT("Stamina");
+		return FText::FromString(FString::Printf(TEXT("%s %d%%"), Label, Percent));
 	}
 
 	FText GetSplitsText() const

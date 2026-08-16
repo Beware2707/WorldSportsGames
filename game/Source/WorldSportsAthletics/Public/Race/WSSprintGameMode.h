@@ -4,6 +4,7 @@
 #include "Framework/WSEventGameMode.h"
 #include "Online/WSOnlineSubsystem.h"
 #include "Race/WSSprintAudio.h"
+#include "Simulation/WSPaceSimulation.h"
 #include "Simulation/WSSprintEvents.h"
 #include "Simulation/WSSprintSimulation.h"
 
@@ -86,8 +87,35 @@ public:
 	void PlayerRelease();
 	void PlayerLean();
 
-	/** The event this race runs. Data, from the WSSprintEvents table. */
+	/** Set and record the effort the player is asking for. */
+	void PushPlayerEffort(double Effort);
+
+	/** Effort the player is holding, 0..1, for the HUD's pace control. */
+	UFUNCTION(BlueprintPure, Category = "Race")
+	float GetPlayerEffort() const { return static_cast<float>(PlayerEffort); }
+
+	/** The event this race runs, when it is a sprint. Data, from the
+	 * WSSprintEvents table. Meaningless if IsPaceEvent(). */
 	const FWSSprintEventSpec& CurrentEvent() const;
+
+	/** The event this race runs, when it is middle distance. */
+	const FWSPaceEventSpec& CurrentPaceEvent() const;
+
+	/** True when the selected event is paced rather than sprinted: no
+	 * blocks, no cadence band, effort and a kick instead. */
+	UFUNCTION(BlueprintPure, Category = "Race")
+	bool IsPaceEvent() const;
+
+	/** The selected event's code, distance and split count, whichever kind
+	 * it is. Everything shared — the track, the camera, the leaderboard
+	 * query, the submitted event code — reads these rather than reaching
+	 * into one table and getting the wrong answer for the other kind. */
+	FString SelectedEventCodeOrDefault() const;
+
+	/** Every running event, sprints first — what the menu cycles through. */
+	static TArray<FString> AllEventCodes();
+	double SelectedDistanceMetres() const;
+	int32 SelectedSplitCount() const;
 
 	/** Choose the event to race (menu / career selection). */
 	UFUNCTION(BlueprintCallable, Category = "Race")
@@ -352,6 +380,10 @@ private:
 	FString TournamentStatus;
 	/** Empty means the default event (the 100m). */
 	FString SelectedEventCode;
+	/** The player's middle-distance inputs, for the submitted digest. */
+	TArray<FWSPaceInputEvent> PlayerPaceTrace;
+	/** Effort the player is currently asking for in a paced race. */
+	double PlayerEffort = 0.0;
 	/** True while the current race belongs to a tournament round: its result
 	 * goes to the bracket endpoint, which scores it against the field the
 	 * server stored BEFORE the race. */
