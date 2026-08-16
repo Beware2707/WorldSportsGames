@@ -1,19 +1,16 @@
 # Development Roadmap
 
-## 0. Gate: tooling (blocking, not started)
+## 0. Gate: tooling ✅ COMPLETE (2026-08-16)
 
-Nothing in Unreal can begin until these exist on the machine. Verified absent
-on 2026-08-10:
+- [x] Unreal Engine 5.8.1 (`C:\Program Files\Epic Games\UE_5.8`)
+- [x] Visual Studio 2022 17.14 — game-dev C++ workload
+- [x] Android SDK android-34 / NDK 27.2 / Temurin JDK 21 (see
+      `TOOLCHAIN_SETUP.md` for the Java-25 Gradle trap)
+- [x] Disk verified
+- [x] Physical device: realme C73 5G (RMX3945), USB debugging authorized
 
-- [ ] Unreal Engine (confirm current stable version in the Epic Launcher)
-- [ ] Visual Studio 2022 — "Game development with C++" + Android workload
-- [ ] Android SDK / NDK / JDK (`SetupAndroid` or Android Studio)
-- [ ] ~150–200 GB free disk
-- [ ] A physical mid-range Android device for testing
-
-**Work available in parallel that needs none of the above:** every step in
-`BACKEND_MIGRATION.md` §8, plus asset-pipeline conventions. That is where effort
-should go while tooling installs.
+Backend work never waited on this gate and is already done (§8 of
+`BACKEND_MIGRATION.md`).
 
 ## 1. Phase 0 — Repository audit ✅ COMPLETE
 
@@ -29,18 +26,23 @@ This document set. Findings in `MIGRATION_ANALYSIS.md`.
 4. Cloud save with additive conflict resolution
 5. pytest coverage for each
 
-**Track B — Unreal (blocked on the gate)**
+**Track B — Unreal ✅ COMPLETE (2026-08-16)**
 
-1. Project + module skeleton per `UNREAL_ARCHITECTURE.md`
-2. Core subsystems (Online, Save, Progression, SportRegistry, DeviceProfile)
-3. HTTP/WS client + auth against the live backend
-4. Sport definition data assets + `EventKind` scoring strategies
-5. Modular athlete + shared skeleton + base AnimBP
-6. Camera director, HUD framework
-7. Android packaging proven end-to-end with a placeholder scene
+1. [x] Project + module skeleton per `UNREAL_ARCHITECTURE.md` (`game/`)
+2. [x] Core subsystems (Online, Save, Progression, SportRegistry,
+       DeviceProfile, Analytics, AudioDirector)
+3. [x] HTTP client + auth against the live backend
+       (`LiveBackend.AuthRoundTrip`); WS reuse comes with live leaderboards
+4. [x] Sport/event definition data assets + value-kind scoring strategies
+5. [x] Modular athlete pawn (leader-pose parts; AnimBP content is Phase 2)
+6. [x] Camera director, HUD widget base
+7. [x] Android packaging proven end-to-end (`WorldSports-arm64.apk`)
 
-**Exit criterion:** an empty-but-real app authenticates against the backend and
-installs on a phone. Prove the pipeline before building content on top of it.
+**Exit criterion met:** the empty-but-real app authenticates against the
+backend (live automation test), installs on the physical device, launches,
+and renders (engine touch interface over the entry map, landscape,
+process stable). Adversarial review of the skeleton: 7 confirmed findings
+fixed in `c8cde3b`, including server-side idempotent result submission.
 
 ## 3. Phase 2 — 100m vertical slice
 
