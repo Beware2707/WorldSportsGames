@@ -105,17 +105,25 @@ void UWSProgressionSubsystem::RefreshCareerAthlete(
 			FWSCareerAthleteDto Dto;
 			FJsonObjectConverter::JsonObjectToUStruct(Result.Json.ToSharedRef(), &Dto);
 			// FJsonObjectConverter does not fill a TMap<FString,float> from a
-			// JSON object, so the attribute map is read explicitly.
+			// JSON object, so the attributes are read explicitly — by LOOKUP
+			// rather than by iterating the map, because FJsonObject's key type
+			// is not FString on every platform (Android builds it as
+			// UE::TSharedString) and iterating it is not portable.
 			Dto.attributes.Reset();
 			const TSharedPtr<FJsonObject>* Attributes = nullptr;
 			if (Result.Json->TryGetObjectField(TEXT("attributes"), Attributes) && Attributes)
 			{
-				for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*Attributes)->Values)
+				// The backend's ATTRIBUTE_KEYS — the contract between the two.
+				static const TCHAR* Keys[] = {
+					TEXT("reaction"), TEXT("acceleration"), TEXT("max_speed"),
+					TEXT("stride_efficiency"), TEXT("stamina"),
+					TEXT("recovery"), TEXT("technique")};
+				for (const TCHAR* Key : Keys)
 				{
 					double Value = 0.0;
-					if (Pair.Value.IsValid() && Pair.Value->TryGetNumber(Value))
+					if ((*Attributes)->TryGetNumberField(Key, Value))
 					{
-						Dto.attributes.Add(Pair.Key, static_cast<float>(Value));
+						Dto.attributes.Add(Key, static_cast<float>(Value));
 					}
 				}
 			}
