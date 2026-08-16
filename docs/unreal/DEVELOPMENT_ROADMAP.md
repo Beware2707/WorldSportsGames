@@ -76,6 +76,25 @@ finished and *feels good*.
 they understand, sees it on a leaderboard, closes the app, reopens it and their
 progress is there.
 
+### Measured on device (realme C73 5G, RMX3945) — 2026-08-16
+
+A live 8-runner race, Development build, ASTC, default quality tier:
+
+| Metric | Value |
+|---|---|
+| Frame | 17.10 ms (~58 fps) |
+| Game thread | 5.99 ms |
+| Draw thread | 5.54 ms |
+| RHI thread | 4.93 ms |
+| GPU | 15.95 ms |
+| Memory | 733 MB |
+
+Comfortably past the 30 fps target for this tier, with the GPU as the
+closest constraint — expected, since the scene is unlit-ish primitives and
+the cost is mostly resolution. Re-measure once real athlete meshes,
+animation and stadium content land; these numbers are the floor to defend,
+not a result to bank.
+
 ### Known limits of the slice (require server authority, not client patches)
 
 Two review findings cannot be closed on the client, because the client is

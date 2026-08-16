@@ -1,7 +1,6 @@
 #include "Race/WSSprintTrack.h"
 
 #include "Components/DirectionalLightComponent.h"
-#include "Components/SkyAtmosphereComponent.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
@@ -71,25 +70,37 @@ AWSSprintTrack::AWSSprintTrack()
 			FLinearColor(0.05f, 0.15f, 0.45f));
 	}
 
+	// Backdrop walls instead of a sky atmosphere: SkyAtmosphere needs a sky
+	// mesh and an IsSky material to render, and without them UE prints a
+	// red error over the running game. Boxes need no content at all, and a
+	// hazy horizon reads better than a black void.
+	const float BackdropHeight = 3000.0f;
+	MakeBox(TEXT("BackdropFar"),
+		FVector(TrackLengthCm + 9000.0f, 0.0f, BackdropHeight - 400.0f),
+		FVector(50.0f, 30000.0f, BackdropHeight),
+		FLinearColor(0.40f, 0.52f, 0.68f));
+	for (int32 Side = -1; Side <= 1; Side += 2)
+	{
+		MakeBox(*FString::Printf(TEXT("BackdropSide%d"), Side),
+			FVector(SurfaceHalfX, Side * 9000.0f, BackdropHeight - 400.0f),
+			FVector(30000.0f, 50.0f, BackdropHeight),
+			FLinearColor(0.34f, 0.45f, 0.60f));
+	}
+	MakeBox(TEXT("BackdropBehind"),
+		FVector(-6000.0f, 0.0f, BackdropHeight - 400.0f),
+		FVector(50.0f, 30000.0f, BackdropHeight),
+		FLinearColor(0.34f, 0.45f, 0.60f));
+
 	SunLight = CreateDefaultSubobject<UDirectionalLightComponent>(TEXT("SunLight"));
 	SunLight->SetupAttachment(Root);
 	SunLight->SetRelativeRotation(FRotator(-48.0f, 35.0f, 0.0f));
 	SunLight->SetIntensity(4.0f);
 	SunLight->SetMobility(EComponentMobility::Movable);
-	// Marks this light as the atmosphere's sun so the sky is lit by it.
-	SunLight->SetAtmosphereSunLight(true);
-
-	// Without an atmosphere the horizon is pure black, which reads as a bug
-	// rather than as a stadium.
-	Atmosphere = CreateDefaultSubobject<USkyAtmosphereComponent>(TEXT("SkyAtmosphere"));
-	Atmosphere->SetupAttachment(Root);
-	Atmosphere->SetMobility(EComponentMobility::Movable);
 
 	SkyLight = CreateDefaultSubobject<USkyLightComponent>(TEXT("SkyLight"));
 	SkyLight->SetupAttachment(Root);
-	SkyLight->SetIntensity(1.0f);
+	SkyLight->SetIntensity(1.6f);
 	SkyLight->SetMobility(EComponentMobility::Movable);
-	SkyLight->bRealTimeCapture = true; // captures the atmosphere above
 	SkyLight->bLowerHemisphereIsBlack = false;
 }
 

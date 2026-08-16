@@ -47,6 +47,4 @@ private:
 	UPROPERTY()
 	TObjectPtr<USkyLightComponent> SkyLight;
 
-	UPROPERTY()
-	TObjectPtr<class USkyAtmosphereComponent> Atmosphere;
 };

@@ -9,6 +9,7 @@
 
 AWSSprintPlayerController::AWSSprintPlayerController()
 {
+	PrimaryActorTick.bCanEverTick = true;
 	bShowMouseCursor = false;
 	bEnableTouchEvents = true;
 	bEnableClickEvents = true;
@@ -17,7 +18,48 @@ AWSSprintPlayerController::AWSSprintPlayerController()
 void AWSSprintPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
-	SetInputMode(FInputModeGameAndUI());
+	ApplyInputModeForScreen();
+}
+
+void AWSSprintPlayerController::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+	ApplyInputModeForScreen();
+}
+
+void AWSSprintPlayerController::ApplyInputModeForScreen()
+{
+	AWSSprintGameMode* GameMode = Sprint();
+	if (!GameMode)
+	{
+		return;
+	}
+	// On a menu the UI owns input: with GameAndUI, touches were consumed as
+	// game input on device and the buttons never responded.
+	const bool bWantUi =
+		GameMode->GetAppState() != EWSAppState::Racing || GameMode->IsPaused();
+	if (bInputModeApplied && bWantUi == bUiInputMode)
+	{
+		return;
+	}
+	bUiInputMode = bWantUi;
+	bInputModeApplied = true;
+
+	if (bWantUi)
+	{
+		FInputModeUIOnly Mode;
+		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		SetInputMode(Mode);
+		bShowMouseCursor = true; // harmless on touch, needed for desktop testing
+	}
+	else
+	{
+		FInputModeGameAndUI Mode;
+		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		Mode.SetHideCursorDuringCapture(false);
+		SetInputMode(Mode);
+		bShowMouseCursor = false;
+	}
 }
 
 void AWSSprintPlayerController::SetupInputComponent()

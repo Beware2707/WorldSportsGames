@@ -743,6 +743,18 @@ void AWSSprintGameMode::HandleSubmitOutcome(uint32 Generation, EWSSubmitOutcome 
 	SetPhase(EWSEventPhase::Reward);
 }
 
+void AWSSprintGameMode::WSStatus()
+{
+	const FWSSprintState* State = PlayerRunner ? &PlayerRunner->GetState() : nullptr;
+	UE_LOG(LogWorldSports, Display,
+		TEXT("WSStatus app=%d phase=%d clock=%.2f paused=%d signedIn=%d "
+			 "dist=%.1f speed=%.2f board=%d/%s verdict='%s'"),
+		static_cast<int32>(AppState), static_cast<int32>(GetPhase()), RaceClock,
+		bPaused ? 1 : 0, IsSignedIn() ? 1 : 0,
+		State ? State->Distance : 0.0, State ? State->Speed : 0.0,
+		LeaderboardRows.Num(), *LeaderboardStatus, *ServerVerdict);
+}
+
 void AWSSprintGameMode::DebugDeliverStaleSubmit()
 {
 	FWSResultResponse Response;

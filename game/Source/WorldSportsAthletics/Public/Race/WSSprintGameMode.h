@@ -148,6 +148,21 @@ public:
 	 * through the real, generation-guarded handler. */
 	void DebugDeliverStaleSubmit();
 
+	// -- Console commands ------------------------------------------------
+	//
+	// On-device verification without depending on touch coordinates:
+	//   adb shell "am broadcast -a android.intent.action.RUN -e cmd WSQuickPlay"
+	// They drive the same entry points the buttons do, so exercising them
+	// proves the real path, not a parallel one.
+
+	UFUNCTION(Exec) void WSQuickPlay() { StartQuickPlay(); }
+	UFUNCTION(Exec) void WSMenu() { ReturnToMenu(); }
+	UFUNCTION(Exec) void WSLeaderboard() { ShowScreen(EWSAppState::Leaderboard); }
+	UFUNCTION(Exec) void WSSettings() { ShowScreen(EWSAppState::Settings); }
+	UFUNCTION(Exec) void WSAccount() { ShowScreen(EWSAppState::SignIn); }
+	/** Reports the live race/app state into the log, for adb logcat. */
+	UFUNCTION(Exec) void WSStatus();
+
 	// -- HUD queries -----------------------------------------------------
 	UFUNCTION(BlueprintPure, Category = "Race")
 	double GetRaceClock() const { return RaceClock; }
