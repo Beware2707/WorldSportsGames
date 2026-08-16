@@ -34,8 +34,15 @@ public:
 
 	static constexpr int32 LaneCount = 8;
 	static constexpr float LaneWidthCm = 122.0f;   // regulation 1.22 m
-	/** The straight is built this long regardless of the event. */
-	static constexpr float MaxTrackLengthCm = 40000.0f; // 400 m
+	/**
+	 * The straight is built this long regardless of the event, and it must
+	 * cover the LONGEST event in any table — not the longest that existed
+	 * when the constant was written. Set to 400m before middle distance
+	 * arrived, an 800m ran off the end into black nothing, which is the
+	 * same defect the 400m had against a 100m track.
+	 * WSSprintTrackTests asserts this against both event tables.
+	 */
+	static constexpr float MaxTrackLengthCm = 150000.0f; // 1500 m
 	static constexpr float ApronCm = 900.0f;       // run-out after the line
 	/** How many distance markers exist; the race uses as many as it needs. */
 	static constexpr int32 MaxDistanceMarks = 10;

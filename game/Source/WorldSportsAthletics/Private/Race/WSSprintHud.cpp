@@ -871,6 +871,13 @@ private:
 		{
 			return FText::GetEmpty();
 		}
+		if (Runner->IsPaceEvent())
+		{
+			// No blocks, so no reaction was measured. Printing "RT 0 ms"
+			// would report a measurement that was never taken — the same
+			// mistake as labelling a 400m's splits every 10m.
+			return FText::GetEmpty();
+		}
 		// Milliseconds, honestly, every race — a design pillar.
 		return FText::FromString(FString::Printf(
 			TEXT("RT %.0f ms"), Outcome.ReactionMs));
