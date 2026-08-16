@@ -76,8 +76,12 @@ public:
 		const FString& DisplayName, FWSUserCallback Callback);
 	void Logout();
 
+	/** Signed in AND the account is known. The token alone is not enough:
+	 * between the token arriving and /auth/me answering, the offline queue
+	 * has no owner, and a result finished in that window would be dropped
+	 * rather than queued. */
 	UFUNCTION(BlueprintPure, Category = "WorldSports|Online")
-	bool IsSignedIn() const { return !AccessToken.IsEmpty(); }
+	bool IsSignedIn() const { return !AccessToken.IsEmpty() && SignedInUser.id != 0; }
 
 	UFUNCTION(BlueprintPure, Category = "WorldSports|Online")
 	const FWSUserDto& GetSignedInUser() const { return SignedInUser; }
@@ -152,6 +156,16 @@ private:
 	TArray<FWSEventResult> OfflineQueue;
 	TArray<FWSSubmitCallback> QueueCallbacks; // parallel to OfflineQueue
 	bool bQueueFlushInFlight = false;
+	/** Identifies the submission currently on the wire. A completion is
+	 * applied only if the queue still belongs to the same account and the
+	 * head is still the same result — otherwise it would dequeue whatever
+	 * happens to be at index 0 now, which after an account switch is a
+	 * different player's unsent race. */
+	int32 InFlightUserId = 0;
+	FString InFlightClientRef;
+	/** Bumped by every sign-in and sign-out so a late auth answer for an
+	 * abandoned attempt cannot resurrect a session. */
+	uint32 AuthGeneration = 0;
 	/** One athlete-creation attempt per session; a second 404 after a
 	 * successful create means something else is wrong and must not loop. */
 	bool bTriedCreatingAthlete = false;

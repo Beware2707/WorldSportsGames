@@ -65,6 +65,7 @@ void UWSOnlineSubsystem::Deinitialize()
 
 void UWSOnlineSubsystem::Login(const FString& Email, const FString& Password, FWSUserCallback Callback)
 {
+	const uint32 Generation = ++AuthGeneration;
 	// OAuth2 password form, exactly what FastAPI's OAuth2PasswordRequestForm reads.
 	const FString Form = FString::Printf(TEXT("username=%s&password=%s"),
 		*FGenericPlatformHttp::UrlEncode(Email),
@@ -72,8 +73,12 @@ void UWSOnlineSubsystem::Login(const FString& Email, const FString& Password, FW
 
 	SendRequest(TEXT("POST"), LoginPath,
 		TEXT("application/x-www-form-urlencoded"), Form,
-		[this, Callback](const FWSHttpResult& Result)
+		[this, Callback, Generation](const FWSHttpResult& Result)
 		{
+			if (Generation != AuthGeneration)
+			{
+				return; // signed out, or a newer sign-in supersedes this one
+			}
 			if (!Result.IsSuccess())
 			{
 				if (Callback)
@@ -100,8 +105,12 @@ void UWSOnlineSubsystem::Login(const FString& Email, const FString& Password, FW
 
 			// Confirm the token and learn who we are before declaring success.
 			Request(TEXT("GET"), MePath, nullptr,
-				[this, Callback](const FWSHttpResult& MeResult)
+				[this, Callback, Generation](const FWSHttpResult& MeResult)
 				{
+					if (Generation != AuthGeneration)
+					{
+						return;
+					}
 					if (!MeResult.IsSuccess() || !MeResult.Json.IsValid())
 					{
 						AccessToken.Empty();
@@ -159,16 +168,26 @@ void UWSOnlineSubsystem::RegisterAccount(const FString& Email, const FString& Pa
 
 void UWSOnlineSubsystem::Logout()
 {
+	// Even with no token yet, this must invalidate a sign-in in progress —
+	// otherwise "sign out" during the login round trip was a no-op and the
+	// player was signed in moments later.
 	if (AccessToken.IsEmpty() && SignedInUser.id == 0)
 	{
+		++AuthGeneration;
 		return;
 	}
 	SaveQueueToDisk(); // the queue stays with its owner, on disk
+	++AuthGeneration;  // discard any sign-in still on the wire
 	AccessToken.Empty();
 	SignedInUser = FWSUserDto();
 	QueueUserId = 0;
 	OfflineQueue.Empty();
 	QueueCallbacks.Empty();
+	// Otherwise the next sign-in's flush would never start, because the
+	// queue would still believe a request was outstanding.
+	bQueueFlushInFlight = false;
+	InFlightUserId = 0;
+	InFlightClientRef.Reset();
 	OnAuthChanged.Broadcast(false);
 }
 
@@ -283,9 +302,23 @@ void UWSOnlineSubsystem::SubmitQueueHead()
 		return;
 	}
 
+	InFlightUserId = QueueUserId;
+	InFlightClientRef = OfflineQueue[0].ClientRef;
+
 	SendRequest(TEXT("POST"), ResultsPath, TEXT("application/json"), JsonToString(Body),
 		[this](const FWSHttpResult& Result)
 		{
+			// The queue may have changed owner (sign out / sign in as someone
+			// else) while this was on the wire. Dequeuing by index would then
+			// destroy the NEW account's unsent race and credit them with this
+			// one's XP, so an orphaned answer is dropped instead.
+			if (InFlightUserId != QueueUserId ||
+				OfflineQueue.Num() == 0 ||
+				OfflineQueue[0].ClientRef != InFlightClientRef)
+			{
+				bQueueFlushInFlight = false;
+				return;
+			}
 			if (!Result.bTransportOk)
 			{
 				NotifyAllQueuedAndHalt(Result.ErrorText);
@@ -492,6 +525,7 @@ void UWSOnlineSubsystem::SwitchQueueUser(int32 UserId)
 		NotifyAllQueuedAndHalt(TEXT("Account changed"));
 	}
 	QueueUserId = UserId;
+	bTriedCreatingAthlete = false; // per account, not per session
 	OfflineQueue.Empty();
 	QueueCallbacks.Empty();
 

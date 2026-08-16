@@ -129,13 +129,23 @@ public:
 					+ SOverlay::Slot()
 					.HAlign(HAlign_Left).VAlign(VAlign_Fill)
 					[
-						// Marker slides with cadence accuracy; centre = on beat.
-						SNew(SBox)
-						.WidthOverride(14.0f)
-						.Padding(this, &SWSSprintHudPanel::GetMarkerPadding)
+						// Marker slides with cadence accuracy; centre = on
+						// beat. The offset is a bound spacer width — padding
+						// inside the 14-wide box squeezed the marker to zero
+						// width, so it never rendered at all.
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot().AutoWidth()
 						[
-							SNew(SImage)
-							.ColorAndOpacity(this, &SWSSprintHudPanel::GetBandColor)
+							SNew(SBox).WidthOverride(this, &SWSSprintHudPanel::GetMarkerOffset)
+						]
+						+ SHorizontalBox::Slot().AutoWidth()
+						[
+							SNew(SBox)
+							.WidthOverride(14.0f)
+							[
+								SNew(SImage)
+								.ColorAndOpacity(this, &SWSSprintHudPanel::GetBandColor)
+							]
 						]
 					]
 					+ SOverlay::Slot()
@@ -412,7 +422,14 @@ public:
 				.Visibility(this, &SWSSprintHudPanel::GetPauseOverlayVisibility)
 				+ SOverlay::Slot()
 				[
-					SNew(SImage).ColorAndOpacity(FLinearColor(0.0f, 0.0f, 0.0f, 0.8f))
+					// A button, not a bare image: an SImage lets the press
+					// bubble through to the viewport, where it becomes race
+					// input. The race also ignores input while paused, so this
+					// is belt and braces — but a pause screen that leaks
+					// touches to the athlete is indefensible either way.
+					SNew(SButton)
+					.ButtonColorAndOpacity(FLinearColor(0.0f, 0.0f, 0.0f, 0.8f))
+					.OnClicked(FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnSwallowClick))
 				]
 				+ SOverlay::Slot()
 				.HAlign(HAlign_Center).VAlign(VAlign_Center)
@@ -628,16 +645,19 @@ private:
 	}
 
 	/** Marker offset encodes cadence error: left = slow, right = fast. */
-	FMargin GetMarkerPadding() const
+	FOptionalSize GetMarkerOffset() const
 	{
+		constexpr float BandWidth = 520.0f;
+		constexpr float Centre = BandWidth * 0.5f - 7.0f; // half the marker
 		const FWSSprintState* State = PlayerState();
 		if (!State || State->TargetCadenceHz <= 0.0)
 		{
-			return FMargin(253.0f, 0.0f, 0.0f, 0.0f);
+			return FOptionalSize(Centre);
 		}
 		const double Error = State->ActualCadenceHz - State->TargetCadenceHz;
 		const double Normalized = FMath::Clamp(Error / 1.2, -1.0, 1.0);
-		return FMargin(253.0f + static_cast<float>(Normalized) * 240.0f, 0.0f, 0.0f, 0.0f);
+		return FOptionalSize(
+			FMath::Clamp(Centre + static_cast<float>(Normalized) * Centre, 0.0f, BandWidth - 14.0f));
 	}
 
 	FSlateColor GetBandColor() const
@@ -971,6 +991,9 @@ private:
 		}
 		return FReply::Handled();
 	}
+
+	/** Absorbs presses on the pause backdrop so they never reach the race. */
+	FReply OnSwallowClick() { return FReply::Handled(); }
 
 	FReply OnReplay()
 	{

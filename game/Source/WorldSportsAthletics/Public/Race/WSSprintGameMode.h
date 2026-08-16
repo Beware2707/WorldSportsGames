@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Framework/WSEventGameMode.h"
 #include "Online/WSOnlineSubsystem.h"
+#include "Race/WSSprintAudio.h"
 #include "Simulation/WSSprintSimulation.h"
 
 #include "WSSprintGameMode.generated.h"
@@ -235,12 +236,15 @@ private:
 	int32 ReplayCursor = INDEX_NONE;
 	float ReplayTime = 0.0f;
 
-	// Generated cues; see WSSprintAudio.h for why they are synthesised.
-	UPROPERTY() TObjectPtr<class USoundWaveProcedural> GunSound;
-	UPROPERTY() TObjectPtr<class USoundWaveProcedural> MarksSound;
-	UPROPERTY() TObjectPtr<class USoundWaveProcedural> SetSound;
-	UPROPERTY() TObjectPtr<class USoundWaveProcedural> FootfallSound;
-	UPROPERTY() TObjectPtr<class USoundWaveProcedural> FinishSound;
+	// Generated cues; see WSSprintAudio.h for why they are synthesised and
+	// why each playback needs a freshly queued wave.
+	FWSSoundCue GunSound;
+	FWSSoundCue MarksSound;
+	FWSSoundCue SetSound;
+	FWSSoundCue FootfallSound;
+	FWSSoundCue FinishSound;
+	/** Seconds before the gun that the "set" call lands, drawn per race. */
+	double SetCallOffsetSeconds = 1.35;
 	bool bPlayedMarks = false;
 	bool bPlayedSet = false;
 	bool bPlayedGun = false;
@@ -250,6 +254,7 @@ private:
 	EWSAppState AppState = EWSAppState::Menu;
 	bool bPaused = false;
 	TArray<FWSLeaderboardRow> LeaderboardRows;
+	bool bLeaderboardInFlight = false;
 	FString LeaderboardStatus;
 	FString AccountStatus;
 

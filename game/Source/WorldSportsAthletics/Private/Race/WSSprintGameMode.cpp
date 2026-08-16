@@ -144,7 +144,10 @@ void AWSSprintGameMode::SubmitCredentials(const FString& Email, const FString& P
 			Self->AccountStatus = bOk
 				? FString::Printf(TEXT("Signed in as %s"), *User.display_name)
 				: Error;
-			if (bOk)
+			// Only leave the sign-in screen if that is still where the
+			// player is. Slamming AppState to Menu buried a live race the
+			// player could then neither see, pause, nor quit.
+			if (bOk && Self->AppState == EWSAppState::SignIn)
 			{
 				Self->AppState = EWSAppState::Menu;
 			}
@@ -181,6 +184,11 @@ void AWSSprintGameMode::RefreshLeaderboard()
 		LeaderboardStatus = TEXT("Online service unavailable");
 		return;
 	}
+	if (bLeaderboardInFlight)
+	{
+		return; // re-entering the screen must not duplicate every row
+	}
+	bLeaderboardInFlight = true;
 	LeaderboardRows.Reset();
 	LeaderboardStatus = TEXT("Loading…");
 
@@ -195,6 +203,7 @@ void AWSSprintGameMode::RefreshLeaderboard()
 			{
 				return;
 			}
+			Self->bLeaderboardInFlight = false;
 			if (!Result.IsSuccess() || !Result.Json.IsValid())
 			{
 				Self->LeaderboardStatus = Result.bTransportOk
@@ -270,6 +279,10 @@ void AWSSprintGameMode::StartRace()
 	FRandomStream StartStream(static_cast<int32>(RaceSeed ^ 0x7F4A7C15u));
 	SetDurationSeconds = MinSetSeconds +
 		StartStream.FRand() * (MaxSetSeconds - MinSetSeconds);
+	// Independently drawn: a fixed set-to-gun interval would let a macro
+	// time the start off the "set" call and ignore the randomised pause.
+	SetCallOffsetSeconds = FMath::Min(
+		0.85 + StartStream.FRand() * 1.45, SetDurationSeconds - 0.5);
 	RaceClock = -SetDurationSeconds;
 
 	SpawnField();
@@ -482,7 +495,19 @@ void AWSSprintGameMode::InitAudio()
 
 void AWSSprintGameMode::TickAudio(float DeltaSeconds)
 {
-	if (!bRaceRunning || bPaused || !PlayerRunner)
+	if (!PlayerRunner)
+	{
+		return;
+	}
+	// Checked before the bRaceRunning gate: when the player is the LAST to
+	// cross, the same tick that finishes them ends the race, so a gated
+	// check would never see the finish.
+	if (!bPlayedFinish && PlayerRunner->GetState().bFinished)
+	{
+		bPlayedFinish = true;
+		WSSprintAudio::Play(GetWorld(), FinishSound);
+	}
+	if (!bRaceRunning || bPaused)
 	{
 		return;
 	}
@@ -493,7 +518,7 @@ void AWSSprintGameMode::TickAudio(float DeltaSeconds)
 		bPlayedMarks = true;
 		WSSprintAudio::Play(GetWorld(), MarksSound);
 	}
-	if (!bPlayedSet && RaceClock >= -1.35)
+	if (!bPlayedSet && RaceClock >= -SetCallOffsetSeconds)
 	{
 		bPlayedSet = true;
 		WSSprintAudio::Play(GetWorld(), SetSound);
@@ -514,11 +539,6 @@ void AWSSprintGameMode::TickAudio(float DeltaSeconds)
 		NextFootfallDistance = State.Distance + StrideMetres;
 		WSSprintAudio::Play(GetWorld(), FootfallSound,
 			0.5f + 0.5f * static_cast<float>(State.CadenceAccuracy));
-	}
-	if (!bPlayedFinish && State.bFinished)
-	{
-		bPlayedFinish = true;
-		WSSprintAudio::Play(GetWorld(), FinishSound);
 	}
 }
 
@@ -767,7 +787,10 @@ void AWSSprintGameMode::DebugDeliverStaleSubmit()
 
 void AWSSprintGameMode::PlayerPress()
 {
-	if (!PlayerRunner || !bRaceRunning)
+	// Paused input is discarded, not deferred: lifting the finger while
+	// paused used to push a pre-gun Release and disqualify the player, and
+	// taps landing at the frozen clock polluted the submitted input trace.
+	if (!PlayerRunner || !bRaceRunning || bPaused)
 	{
 		return;
 	}
@@ -794,7 +817,7 @@ void AWSSprintGameMode::PlayerPress()
 
 void AWSSprintGameMode::PlayerRelease()
 {
-	if (!bHolding || !PlayerRunner || PlayerRunner->GetState().bReleased)
+	if (!bHolding || !PlayerRunner || bPaused || PlayerRunner->GetState().bReleased)
 	{
 		return;
 	}
@@ -808,7 +831,7 @@ void AWSSprintGameMode::PlayerRelease()
 
 void AWSSprintGameMode::PlayerLean()
 {
-	if (!PlayerRunner || !bRaceRunning)
+	if (!PlayerRunner || !bRaceRunning || bPaused)
 	{
 		return;
 	}

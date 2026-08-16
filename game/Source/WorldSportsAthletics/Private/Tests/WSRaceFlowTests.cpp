@@ -371,6 +371,63 @@ bool FWSRacePauseTest::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSRacePauseInputTest,
+	"WorldSports.Race.PausedInputCannotDisqualify",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+bool FWSRacePauseInputTest::RunTest(const FString&)
+{
+	// Pausing during "Set" and then letting go of the screen — the natural
+	// thing to do while paused — used to push a pre-gun Release into the
+	// simulation and disqualify the player for pausing.
+	FRaceHarness Harness;
+	if (!TestNotNull(TEXT("game mode spawned"), Harness.GameMode))
+	{
+		return false;
+	}
+
+	bool bHeld = false;
+	bool bPausedYet = false;
+	bool bLetGo = false;
+	double NextTapAt = 0.0;
+	Harness.RunFor(35.0, 1.0 / 60.0, [&](double Clock)
+	{
+		if (!bHeld && Clock > -2.0)
+		{
+			Harness.GameMode->PlayerPress(); // settle into the blocks
+			bHeld = true;
+		}
+		else if (bHeld && !bPausedYet)
+		{
+			Harness.GameMode->SetPaused(true);
+			bPausedYet = true;
+		}
+		else if (bPausedYet && !bLetGo)
+		{
+			// Finger lifts while the race is frozen before the gun.
+			Harness.GameMode->PlayerRelease();
+			bLetGo = true;
+			Harness.GameMode->SetPaused(false);
+			NextTapAt = Clock;
+		}
+		else if (bLetGo)
+		{
+			AWSSprintRunner* Runner = Harness.GameMode->GetPlayerRunner();
+			if (Runner && !Runner->GetState().bReleased && Clock >= 0.18)
+			{
+				Harness.GameMode->PlayerPress();
+				Harness.GameMode->PlayerRelease();
+				NextTapAt = Clock + 0.12;
+			}
+			PlayWell(Harness.GameMode, Clock, NextTapAt);
+		}
+	});
+
+	AWSSprintRunner* Player = Harness.GameMode->GetPlayerRunner();
+	TestFalse(TEXT("pausing did not disqualify the player"), Player->HasFalseStarted());
+	TestTrue(TEXT("the race still finished"), Player->HasFinished());
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSRaceReplayTest,
 	"WorldSports.Race.FinishReplayRewindsWithoutChangingTheResult",
 	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
