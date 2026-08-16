@@ -12,6 +12,7 @@ public class WorldSportsEditor : ModuleRules
 			"CoreUObject",
 			"Engine",
 			"UnrealEd",
+			"AssetRegistry",
 			"WorldSports",
 		});
 	}

@@ -46,6 +46,9 @@ protected:
 
 	void SetPhase(EWSEventPhase NewPhase);
 
+	/** The event game state, resolved through the world. */
+	class AWSGameStateBase* WSGameState() const;
+
 	/** Which event this level is running; resolved from the definition's code
 	 * or set by the travel options. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WorldSports|Event")

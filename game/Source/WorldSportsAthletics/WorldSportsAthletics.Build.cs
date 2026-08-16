@@ -12,7 +12,16 @@ public class WorldSportsAthletics : ModuleRules
 			"Core",
 			"CoreUObject",
 			"Engine",
+			"InputCore",
+			"UMG",
+			"Json",
 			"WorldSports",
+		});
+
+		PrivateDependencyModuleNames.AddRange(new string[]
+		{
+			"Slate",
+			"SlateCore",
 		});
 	}
 }

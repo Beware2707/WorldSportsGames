@@ -17,10 +17,18 @@ void AWSEventGameMode::BeginPlay()
 	SetPhase(EWSEventPhase::Load);
 }
 
+AWSGameStateBase* AWSEventGameMode::WSGameState() const
+{
+	// The world's game state, not AGameModeBase::GameState: the two are the
+	// same in normal play, but the world's is also valid for a game mode
+	// driven directly (automation, headless replay).
+	return GetWorld() ? GetWorld()->GetGameState<AWSGameStateBase>() : nullptr;
+}
+
 EWSEventPhase AWSEventGameMode::GetPhase() const
 {
-	const AWSGameStateBase* WSGameState = GetGameState<AWSGameStateBase>();
-	return WSGameState ? WSGameState->GetPhase() : EWSEventPhase::Load;
+	const AWSGameStateBase* State = WSGameState();
+	return State ? State->GetPhase() : EWSEventPhase::Load;
 }
 
 void AWSEventGameMode::AdvancePhase()
@@ -35,9 +43,9 @@ void AWSEventGameMode::AdvancePhase()
 
 void AWSEventGameMode::SetPhase(EWSEventPhase NewPhase)
 {
-	if (AWSGameStateBase* WSGameState = GetGameState<AWSGameStateBase>())
+	if (AWSGameStateBase* State = WSGameState())
 	{
-		WSGameState->SetPhase(NewPhase);
+		State->SetPhase(NewPhase);
 		OnPhaseEntered(NewPhase);
 	}
 }
