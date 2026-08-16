@@ -375,18 +375,37 @@ async def test_stale_save_conflicts_with_merge_suggestion(client, headers):
     detail = r.json()["detail"]
     assert detail["server"]["version"] == 1
     assert detail["server"]["payload"]["total_xp"] == 200
-    # The merge keeps BOTH devices' progress: max XP, union of unlocks.
-    assert detail["suggested_merge"]["total_xp"] == 200
+    # The union keys keep both devices' client-side collections.
     assert detail["suggested_merge"]["unlocks"] == ["a", "b"]
+    # total_xp is NOT merged as progression. The save blob is client-written
+    # scratch, so a "max" here would preserve whichever number a player typed
+    # into their save file. Authoritative XP lives on the career athlete.
+    assert detail["suggested_merge"]["total_xp"] == 150, (
+        "client-written XP must be treated as ordinary data, not progression"
+    )
 
 
 def test_merge_is_additive_for_monotonic_data():
-    ours = {"total_xp": 500, "unlocks": ["a", "b"], "name": "Kip"}
-    theirs = {"total_xp": 350, "unlocks": ["b", "c"], "name": "Kipchoge"}
+    ours = {"sessions_played": 500, "unlocks": ["a", "b"], "name": "Kip"}
+    theirs = {"sessions_played": 350, "unlocks": ["b", "c"], "name": "Kipchoge"}
     merged = merge_saves(ours, theirs)
-    assert merged["total_xp"] == 500, "XP never goes backwards"
+    assert merged["sessions_played"] == 500, "counters never go backwards"
     assert merged["unlocks"] == ["a", "b", "c"], "unlocks are never lost"
     assert merged["name"] == "Kipchoge", "non-monotonic keys take the newer write"
+
+
+def test_merge_does_not_launder_client_written_xp():
+    """The save blob is client-owned scratch, not progression.
+
+    Merging it as monotonic made a number the player can type look
+    authoritative: whichever save claimed more XP won, forever. Real XP only
+    moves through validated results and validated training on the server.
+    """
+    ours = {"total_xp": 999999}
+    theirs = {"total_xp": 10}
+    assert merge_saves(ours, theirs)["total_xp"] == 10, (
+        "an inflated save must not survive a merge as if it were earned"
+    )
 
 
 async def test_saves_are_per_user(client, headers):

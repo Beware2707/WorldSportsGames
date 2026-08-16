@@ -26,10 +26,15 @@ class SubmitScoreIn(BaseModel):
 
     ``score`` is validated against the game's own bounds server-side; the
     client cannot declare its own XP.
+
+    ``client_ref`` makes resubmission safe. Replaying a captured request is
+    the cheapest cheat available — it needs no modified client — so the same
+    ref is answered with the original outcome rather than rewarded again.
     """
 
     score: float
     detail: dict[str, Any] = Field(default_factory=dict)
+    client_ref: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class AchievementOut(BaseModel):

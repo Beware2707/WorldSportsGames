@@ -176,6 +176,7 @@ async def record_session(
     score: float,
     detail: dict,
     today: date,
+    client_ref: str | None = None,
 ) -> tuple[GameSession, list[Achievement], bool]:
     """Persist a play and update progression.
 
@@ -192,6 +193,10 @@ async def record_session(
         xp_awarded=xp,
         detail=detail,
         played_on=today,
+        client_ref=client_ref,
+        # Stored because "was this a personal best?" cannot be recomputed
+        # later without comparing the result against itself.
+        was_personal_best=improved,
     )
     session.add(row)
 

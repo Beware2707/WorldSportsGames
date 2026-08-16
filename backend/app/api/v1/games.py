@@ -2,10 +2,12 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import CurrentUser, DbSession, OptionalUser
 from app.api.v1.friends import friend_ids
+from app.models import GameSession
 from app.repositories.games import (
     all_achievements,
     get_country_by_iso3,
@@ -93,6 +95,34 @@ async def submit_score(
             detail=f"Score must be between {low} and {high} for this game",
         )
 
+    # Idempotent replay: the same client_ref is answered with the ORIGINAL
+    # outcome. Without this, resending a captured request awards XP again —
+    # the cheapest cheat available, needing no modified client at all.
+    if body.client_ref is not None:
+        existing = (
+            await session.execute(
+                select(GameSession).where(
+                    GameSession.user_id == user.id,
+                    GameSession.game_id == game.id,
+                    GameSession.client_ref == body.client_ref,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            progress = await user_progress(session, user.id)
+            level, into, needed = xp_progress(progress.total_xp)
+            return SubmitScoreOut(
+                score=existing.score,
+                xp_awarded=existing.xp_awarded,
+                is_personal_best=existing.was_personal_best,
+                total_xp=progress.total_xp,
+                level=level,
+                xp_into_level=into,
+                xp_for_next_level=needed,
+                streak_days=progress.streak_days,
+                unlocked=[],
+            )
+
     # Two concurrent first plays from one user each INSERT the progress row.
     # The conflict surfaces at COMMIT (each request has its own transaction,
     # so neither sees the other's uncommitted row), which a savepoint inside
@@ -108,6 +138,7 @@ async def submit_score(
                 score=body.score,
                 detail=body.detail,
                 today=datetime.now(UTC).date(),
+                client_ref=body.client_ref,
             )
             progress = await user_progress(session, user.id)
             await session.commit()

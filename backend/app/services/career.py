@@ -41,6 +41,8 @@ class CareerEvent:
     unit: str = "s"
     # No physically possible 10m segment is faster than this (seconds).
     min_split_seconds: float = 0.75
+    # Race distance, for career distance totals. 0 for non-distance events.
+    distance_m: float = 0.0
 
 
 # Sub-100 ms reaction is a false start under World Athletics rules — and it is
@@ -63,6 +65,7 @@ EVENTS: dict[str, CareerEvent] = {
         ceiling_at_hundred=9.55,
         splits_expected=10,
         requires_reaction=True,
+        distance_m=100.0,
     ),
 }
 
@@ -337,9 +340,25 @@ def default_attributes() -> dict[str, float]:
 
 # ---- cloud save merge -----------------------------------------------------
 
-# Keys that only ever grow. On conflict these merge automatically; anything
-# else is a genuine divergence the client must resolve.
-_MONOTONIC_KEYS = ("total_xp", "sessions_played")
+# WHAT THE SAVE BLOB IS: client-owned scratch — settings, tutorial flags,
+# local preferences. It is NOT progression. Every byte of it is written by
+# the client, so anything the game trusts from here is something a player
+# can hand themselves by editing a JSON file.
+#
+# Authoritative progression lives on the server: CareerAthlete.total_xp,
+# career_stage and CareerAttribute rows, all of which only move through
+# validated results (services/career.record_result) and validated training
+# (services/training.record_session).
+#
+# "total_xp" deliberately does NOT appear below. It used to, which meant a
+# client could put any number in its save and the merge would faithfully
+# preserve the larger one — an authoritative-looking XP value that the
+# server never agreed to. A client that displays save.total_xp is displaying
+# its own claim; read the athlete instead.
+_MONOTONIC_KEYS = ("sessions_played",)
+# Unions are convenience for client-side collections (seen tips, dismissed
+# banners). They are NOT entitlements: cosmetic OWNERSHIP must be a server
+# table before anything is sold, or "cosmetics" here becomes a free grant.
 _UNION_KEYS = ("unlocks", "achievements", "cosmetics")
 
 

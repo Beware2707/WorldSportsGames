@@ -73,17 +73,17 @@ async def test_nan_reaction_cannot_launder_a_false_start(client, headers):
 def test_merge_saves_handles_object_valued_lists():
     """Achievements/cosmetics are naturally lists of objects; the merge must
     union them without raising (set() on dicts is a TypeError)."""
-    ours = {"achievements": [{"id": "a"}, {"id": "b"}], "total_xp": 500}
-    theirs = {"achievements": [{"id": "b"}, {"id": "c"}], "total_xp": 300}
+    ours = {"achievements": [{"id": "a"}, {"id": "b"}], "sessions_played": 500}
+    theirs = {"achievements": [{"id": "b"}, {"id": "c"}], "sessions_played": 300}
     merged = merge_saves(ours, theirs)
-    assert merged["total_xp"] == 500
+    assert merged["sessions_played"] == 500
     ids = [a["id"] for a in merged["achievements"]]
     assert ids == ["a", "b", "c"], "object unlocks de-duplicated by value"
 
 
 def test_merge_saves_tolerates_non_numeric_monotonic_values():
-    merged = merge_saves({"total_xp": "corrupt"}, {"total_xp": 50})
-    assert merged["total_xp"] == 50  # newer write, no crash
+    merged = merge_saves({"sessions_played": "corrupt"}, {"sessions_played": 50})
+    assert merged["sessions_played"] == 50  # newer write, no crash
 
     merged = merge_saves({"unlocks": "not-a-list"}, {"unlocks": ["a"]})
     assert merged["unlocks"] == ["a"]

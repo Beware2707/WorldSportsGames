@@ -17,6 +17,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -59,6 +60,19 @@ class GameSession(Base):
     __table_args__ = (
         Index("ix_game_session_leaderboard", "game_id", "score"),
         Index("ix_game_session_user", "user_id", "created_at"),
+        # Replaying a captured submission is the cheapest cheat there is: it
+        # needs no modified client, just the same request sent twice. One row
+        # per client submission makes the replay answerable instead of
+        # doubly rewarded.
+        Index(
+            "uq_game_session_client_ref",
+            "user_id",
+            "game_id",
+            "client_ref",
+            unique=True,
+            postgresql_where=text("client_ref IS NOT NULL"),
+            sqlite_where=text("client_ref IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -67,6 +81,8 @@ class GameSession(Base):
     score: Mapped[float] = mapped_column()
     xp_awarded: Mapped[int] = mapped_column(default=0)
     detail: Mapped[dict] = mapped_column(JSON, default=dict)
+    client_ref: Mapped[str | None] = mapped_column(String(64))
+    was_personal_best: Mapped[bool] = mapped_column(default=False)
     played_on: Mapped[date] = mapped_column(Date, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

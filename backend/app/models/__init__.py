@@ -26,6 +26,7 @@ from app.models.media import (
 )
 from app.models.social import AnalyticsEvent, FriendCode, Friendship
 from app.models.tournament import CareerTournament, TournamentRound
+from app.models.training import TrainingSession
 from app.models.user import (
     AppUser,
     Favorite,
@@ -67,6 +68,7 @@ __all__ = [
     "Sport",
     "Team",
     "TournamentRound",
+    "TrainingSession",
     "UserAchievement",
     "UserPreference",
     "UserProgress",
