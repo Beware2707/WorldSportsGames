@@ -24,7 +24,7 @@ struct FRaceHarness
 	UWorld* World = nullptr;
 	AWSSprintGameMode* GameMode = nullptr;
 
-	explicit FRaceHarness()
+	explicit FRaceHarness(bool bStartRace = true)
 	{
 		PreviousWorld = GWorld;
 		World = UWorld::CreateWorld(EWorldType::Game, /*bInformEngineOfWorld=*/false);
@@ -42,6 +42,11 @@ struct FRaceHarness
 		if (GameMode)
 		{
 			GameMode->DispatchBeginPlay();
+			// The app opens on the menu now; most tests are about the race.
+			if (bStartRace)
+			{
+				GameMode->StartQuickPlay();
+			}
 		}
 	}
 
@@ -269,6 +274,138 @@ bool FWSRaceLateFirstTouchTest::RunTest(const FString&)
 	TestTrue(FString::Printf(TEXT("reaction %.0fms is the player's own release"),
 			Outcome.ReactionMs),
 		Outcome.ReactionMs > 350.0 && Outcome.ReactionMs < 600.0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSAppShellTest,
+	"WorldSports.Race.ShellOpensOnMenuAndReturnsToIt",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+bool FWSAppShellTest::RunTest(const FString&)
+{
+	// The app must open on a menu — a player has to be able to sign in and
+	// read a leaderboard without being dropped into a race first.
+	FRaceHarness Harness(/*bStartRace=*/false);
+	if (!TestNotNull(TEXT("game mode spawned"), Harness.GameMode))
+	{
+		return false;
+	}
+	TestEqual(TEXT("opens on the menu"),
+		static_cast<int32>(Harness.GameMode->GetAppState()),
+		static_cast<int32>(EWSAppState::Menu));
+	TestFalse(TEXT("no race is running yet"),
+		Harness.GameMode->GetPlayerRunner() != nullptr &&
+		Harness.GameMode->GetPhase() == EWSEventPhase::Ready);
+
+	Harness.GameMode->StartQuickPlay();
+	TestEqual(TEXT("quick play races"),
+		static_cast<int32>(Harness.GameMode->GetAppState()),
+		static_cast<int32>(EWSAppState::Racing));
+	Harness.RunFor(32.0);
+	TestTrue(TEXT("race completed"), Harness.GameMode->GetPlayerRunner()->HasFinished());
+
+	Harness.GameMode->ReturnToMenu();
+	TestEqual(TEXT("back on the menu"),
+		static_cast<int32>(Harness.GameMode->GetAppState()),
+		static_cast<int32>(EWSAppState::Menu));
+
+	// And the loop closes: menu → race → result → menu → race again.
+	Harness.GameMode->StartQuickPlay();
+	Harness.RunFor(32.0);
+	TestTrue(TEXT("second race completed"),
+		Harness.GameMode->GetPlayerRunner()->HasFinished());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSRacePauseTest,
+	"WorldSports.Race.PauseFreezesTheRaceWithoutAdvantage",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+bool FWSRacePauseTest::RunTest(const FString&)
+{
+	FRaceHarness Harness;
+	if (!TestNotNull(TEXT("game mode spawned"), Harness.GameMode))
+	{
+		return false;
+	}
+
+	// Get into the race proper, then pause mid-run.
+	bool bPressed = false;
+	bool bReleased = false;
+	double NextTapAt = 0.0;
+	Harness.RunFor(8.0, 1.0 / 60.0, [&](double Clock)
+	{
+		if (!bPressed && Clock > -1.5) { Harness.GameMode->PlayerPress(); bPressed = true; }
+		if (bPressed && !bReleased && Clock >= 0.18)
+		{
+			Harness.GameMode->PlayerRelease();
+			bReleased = true;
+			NextTapAt = Clock + 0.12;
+		}
+		if (bReleased) { PlayWell(Harness.GameMode, Clock, NextTapAt); }
+	});
+
+	AWSSprintRunner* Player = Harness.GameMode->GetPlayerRunner();
+	TestTrue(TEXT("race is under way"), Player->GetState().Distance > 5.0);
+	const double ClockAtPause = Harness.GameMode->GetRaceClock();
+	const double DistanceAtPause = Player->GetState().Distance;
+
+	Harness.GameMode->SetPaused(true);
+	TestTrue(TEXT("paused"), Harness.GameMode->IsPaused());
+	Harness.RunFor(3.0); // three seconds of real time pass
+
+	// Nothing moved and no time was consumed: pause is not a rest, and it is
+	// not a way to stop the clock while the athlete keeps running either.
+	TestEqual(TEXT("race clock frozen"),
+		Harness.GameMode->GetRaceClock(), ClockAtPause);
+	TestEqual(TEXT("athlete frozen"),
+		Player->GetState().Distance, DistanceAtPause);
+
+	Harness.GameMode->SetPaused(false);
+	Harness.RunFor(32.0, 1.0 / 60.0, [&](double Clock)
+	{
+		PlayWell(Harness.GameMode, Clock, NextTapAt);
+	});
+	TestTrue(TEXT("race resumes and finishes"), Player->HasFinished());
+	TestTrue(TEXT("time is still plausible"),
+		Player->GetOutcome().TimeSeconds > 9.5 &&
+		Player->GetOutcome().TimeSeconds < 20.0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSRaceReplayTest,
+	"WorldSports.Race.FinishReplayRewindsWithoutChangingTheResult",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+bool FWSRaceReplayTest::RunTest(const FString&)
+{
+	FRaceHarness Harness;
+	if (!TestNotNull(TEXT("game mode spawned"), Harness.GameMode))
+	{
+		return false;
+	}
+	Harness.RunFor(35.0);
+
+	AWSSprintRunner* Player = Harness.GameMode->GetPlayerRunner();
+	TestTrue(TEXT("race finished"), Player->HasFinished());
+	const FWSSprintOutcome Before = Player->GetOutcome();
+	const FVector EndPosition = Player->GetActorLocation();
+
+	Harness.GameMode->PlayFinishReplay();
+	TestTrue(TEXT("replay started"), Harness.GameMode->IsReplaying());
+
+	// Mid-replay the athletes are back down the track...
+	Harness.RunFor(1.0);
+	TestTrue(TEXT("replay rewound the athlete"),
+		Player->GetActorLocation().X < EndPosition.X);
+
+	Harness.RunFor(12.0);
+	TestFalse(TEXT("replay ended"), Harness.GameMode->IsReplaying());
+
+	// ...and the RESULT is untouched. A replay is presentation, never a
+	// second chance to change what happened.
+	const FWSSprintOutcome After = Player->GetOutcome();
+	TestEqual(TEXT("time unchanged"), After.TimeSeconds, Before.TimeSeconds);
+	TestEqual(TEXT("splits unchanged"), After.Splits.Num(), Before.Splits.Num());
+	TestEqual(TEXT("standings unchanged"),
+		Harness.GameMode->GetStandings().Num(), AWSSprintTrack::LaneCount);
 	return true;
 }
 

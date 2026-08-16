@@ -6,6 +6,7 @@
 #include "Framework/WSGameStateBase.h"
 #include "Kismet/GameplayStatics.h"
 #include "Online/WSOnlineSubsystem.h"
+#include "Race/WSSprintAudio.h"
 #include "Race/WSSprintHud.h"
 #include "Race/WSSprintPlayerController.h"
 #include "Race/WSSprintRunner.h"
@@ -61,9 +62,176 @@ void AWSSprintGameMode::BeginPlay()
 			Hud->BindGameMode(this);
 			Hud->AddToViewport();
 		}
+		InitAudio();
 	}
 
+	// The app opens on the menu, not mid-race: a player must be able to sign
+	// in and read a leaderboard without racing first.
+	AppState = EWSAppState::Menu;
+}
+
+void AWSSprintGameMode::ShowScreen(EWSAppState NewState)
+{
+	AppState = NewState;
+	if (NewState == EWSAppState::Leaderboard)
+	{
+		RefreshLeaderboard();
+	}
+}
+
+void AWSSprintGameMode::StartQuickPlay()
+{
+	AppState = EWSAppState::Racing;
+	bPaused = false;
 	StartRace();
+}
+
+void AWSSprintGameMode::ReturnToMenu()
+{
+	// Abandoning mid-race simply ends it. Nothing is submitted, because
+	// nothing was finished — an unfinished run has no time to claim.
+	bRaceRunning = false;
+	bPaused = false;
+	++RaceGeneration; // any in-flight submit answer is now stale
+	AppState = EWSAppState::Menu;
+	SetPhase(EWSEventPhase::Load);
+}
+
+void AWSSprintGameMode::SetPaused(bool bPause)
+{
+	// Pausing freezes the race clock. It cannot buy speed: the simulation is
+	// driven by that clock, and cadence accuracy is measured against it.
+	bPaused = bPause && bRaceRunning;
+}
+
+bool AWSSprintGameMode::IsSignedIn() const
+{
+	UWSOnlineSubsystem* Online =
+		GetGameInstance() ? GetGameInstance()->GetSubsystem<UWSOnlineSubsystem>() : nullptr;
+	return Online && Online->IsSignedIn();
+}
+
+FString AWSSprintGameMode::GetSignedInName() const
+{
+	UWSOnlineSubsystem* Online =
+		GetGameInstance() ? GetGameInstance()->GetSubsystem<UWSOnlineSubsystem>() : nullptr;
+	return Online ? Online->GetSignedInUser().display_name : FString();
+}
+
+void AWSSprintGameMode::SubmitCredentials(const FString& Email, const FString& Password,
+	const FString& DisplayName, bool bRegister)
+{
+	UWSOnlineSubsystem* Online =
+		GetGameInstance() ? GetGameInstance()->GetSubsystem<UWSOnlineSubsystem>() : nullptr;
+	if (!Online)
+	{
+		AccountStatus = TEXT("Online service unavailable");
+		return;
+	}
+	if (Email.IsEmpty() || Password.IsEmpty())
+	{
+		AccountStatus = TEXT("Enter an email and password");
+		return;
+	}
+
+	AccountStatus = bRegister ? TEXT("Creating your account…") : TEXT("Signing in…");
+	TWeakObjectPtr<AWSSprintGameMode> WeakThis(this);
+	auto OnDone = [WeakThis](bool bOk, const FWSUserDto& User, const FString& Error)
+	{
+		if (AWSSprintGameMode* Self = WeakThis.Get())
+		{
+			// The server's own words on failure — never a generic "error".
+			Self->AccountStatus = bOk
+				? FString::Printf(TEXT("Signed in as %s"), *User.display_name)
+				: Error;
+			if (bOk)
+			{
+				Self->AppState = EWSAppState::Menu;
+			}
+		}
+	};
+
+	if (bRegister)
+	{
+		Online->RegisterAccount(Email, Password,
+			DisplayName.IsEmpty() ? TEXT("Athlete") : DisplayName, OnDone);
+	}
+	else
+	{
+		Online->Login(Email, Password, OnDone);
+	}
+}
+
+void AWSSprintGameMode::SignOut()
+{
+	if (UWSOnlineSubsystem* Online =
+			GetGameInstance() ? GetGameInstance()->GetSubsystem<UWSOnlineSubsystem>() : nullptr)
+	{
+		Online->Logout();
+	}
+	AccountStatus = TEXT("Signed out");
+}
+
+void AWSSprintGameMode::RefreshLeaderboard()
+{
+	UWSOnlineSubsystem* Online =
+		GetGameInstance() ? GetGameInstance()->GetSubsystem<UWSOnlineSubsystem>() : nullptr;
+	if (!Online)
+	{
+		LeaderboardStatus = TEXT("Online service unavailable");
+		return;
+	}
+	LeaderboardRows.Reset();
+	LeaderboardStatus = TEXT("Loading…");
+
+	TWeakObjectPtr<AWSSprintGameMode> WeakThis(this);
+	Online->Request(TEXT("GET"),
+		TEXT("/api/v1/career/leaderboard?event=sprint-100m&scope=global&period=all_time"),
+		nullptr,
+		[WeakThis](const FWSHttpResult& Result)
+		{
+			AWSSprintGameMode* Self = WeakThis.Get();
+			if (!Self)
+			{
+				return;
+			}
+			if (!Result.IsSuccess() || !Result.Json.IsValid())
+			{
+				Self->LeaderboardStatus = Result.bTransportOk
+					? FString::Printf(TEXT("Leaderboard unavailable (%d)"), Result.StatusCode)
+					: TEXT("No connection to the server");
+				return;
+			}
+			const TArray<TSharedPtr<FJsonValue>>* Rows = nullptr;
+			if (!Result.Json->TryGetArrayField(TEXT("rows"), Rows))
+			{
+				Self->LeaderboardStatus = TEXT("Leaderboard response was malformed");
+				return;
+			}
+			for (const TSharedPtr<FJsonValue>& Value : *Rows)
+			{
+				const TSharedPtr<FJsonObject> Row = Value->AsObject();
+				if (!Row.IsValid())
+				{
+					continue;
+				}
+				FWSLeaderboardRow Entry;
+				Row->TryGetNumberField(TEXT("rank"), Entry.Rank);
+				Row->TryGetStringField(TEXT("athlete_name"), Entry.AthleteName);
+				Row->TryGetStringField(TEXT("value_text"), Entry.ValueText);
+				const TSharedPtr<FJsonObject>* Country = nullptr;
+				if (Row->TryGetObjectField(TEXT("country"), Country) && Country)
+				{
+					(*Country)->TryGetStringField(TEXT("code"), Entry.Country);
+				}
+				Self->LeaderboardRows.Add(MoveTemp(Entry));
+			}
+			// An empty board is stated as empty, never dressed up with
+			// placeholder names.
+			Self->LeaderboardStatus = Self->LeaderboardRows.Num() > 0
+				? FString()
+				: TEXT("No verified times yet — run one and be first.");
+		});
 }
 
 void AWSSprintGameMode::StartRace()
@@ -80,6 +248,13 @@ void AWSSprintGameMode::StartRace()
 	Standings.Reset();
 	PlayerTrace.Reset();
 	ServerVerdict.Reset();
+	ReplayFrames.Reset();
+	ReplayCursor = INDEX_NONE;
+	bPlayedMarks = false;
+	bPlayedSet = false;
+	bPlayedGun = false;
+	bPlayedFinish = false;
+	NextFootfallDistance = 0.0;
 	bAwaitingServer = false;
 	bHolding = false;
 	ResultDwell = 0.0f;
@@ -166,7 +341,7 @@ void AWSSprintGameMode::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
-	if (bRaceRunning)
+	if (bRaceRunning && !bPaused)
 	{
 		RaceClock += DeltaSeconds;
 
@@ -184,6 +359,8 @@ void AWSSprintGameMode::Tick(float DeltaSeconds)
 				bAllDone = false;
 			}
 		}
+
+		RecordReplayFrame();
 
 		// A false start stops the race immediately, exactly as it would on
 		// a real track — no "keep running and see".
@@ -214,6 +391,8 @@ void AWSSprintGameMode::Tick(float DeltaSeconds)
 	{
 		State->SetEventClockSeconds(static_cast<float>(FMath::Max(RaceClock, 0.0)));
 	}
+	TickAudio(DeltaSeconds);
+	TickReplay(DeltaSeconds);
 	UpdateCamera(DeltaSeconds);
 }
 
@@ -282,6 +461,139 @@ void AWSSprintGameMode::UpdateCamera(float DeltaSeconds)
 		FMath::Lerp(RaceCamera->GetActorLocation(), Desired, Blend));
 	RaceCamera->SetActorRotation(
 		FMath::Lerp(RaceCamera->GetActorRotation(), DesiredRotation, Blend));
+}
+
+void AWSSprintGameMode::InitAudio()
+{
+	// Only a race with a real player has audio. A headless race (automation,
+	// future server-side replay validation) must run identically without it,
+	// so the cues are never even created there.
+	if (!GEngine || !GEngine->UseSound())
+	{
+		return;
+	}
+	// Generated once and reused; each cue is a few KB of PCM.
+	GunSound = WSSprintAudio::MakeGunshot();
+	MarksSound = WSSprintAudio::MakeTone(330.0f, 0.35f);
+	SetSound = WSSprintAudio::MakeTone(494.0f, 0.30f);
+	FootfallSound = WSSprintAudio::MakeFootfall();
+	FinishSound = WSSprintAudio::MakeFinishChime();
+}
+
+void AWSSprintGameMode::TickAudio(float DeltaSeconds)
+{
+	if (!bRaceRunning || bPaused || !PlayerRunner)
+	{
+		return;
+	}
+	// The calls and the gun are the timing signal a player reacts to, so
+	// they fire from the race clock, not from an animation or a widget.
+	if (!bPlayedMarks && RaceClock >= -SetDurationSeconds + 0.35)
+	{
+		bPlayedMarks = true;
+		WSSprintAudio::Play(GetWorld(), MarksSound);
+	}
+	if (!bPlayedSet && RaceClock >= -1.35)
+	{
+		bPlayedSet = true;
+		WSSprintAudio::Play(GetWorld(), SetSound);
+	}
+	if (!bPlayedGun && RaceClock >= 0.0)
+	{
+		bPlayedGun = true;
+		WSSprintAudio::Play(GetWorld(), GunSound, 1.0f);
+	}
+
+	// Footfalls track the athlete's actual stride, so the sound IS the
+	// rhythm the player is trying to match — an audio version of the band
+	// for players who cannot rely on the visual one.
+	const FWSSprintState& State = PlayerRunner->GetState();
+	if (State.bReleased && !State.bFinished && State.Distance >= NextFootfallDistance)
+	{
+		const double StrideMetres = FMath::Max(State.Speed / FMath::Max(State.TargetCadenceHz, 0.5), 0.8);
+		NextFootfallDistance = State.Distance + StrideMetres;
+		WSSprintAudio::Play(GetWorld(), FootfallSound,
+			0.5f + 0.5f * static_cast<float>(State.CadenceAccuracy));
+	}
+	if (!bPlayedFinish && State.bFinished)
+	{
+		bPlayedFinish = true;
+		WSSprintAudio::Play(GetWorld(), FinishSound);
+	}
+}
+
+void AWSSprintGameMode::RecordReplayFrame()
+{
+	// A rolling window of the closing seconds; enough for the finish, and
+	// bounded so a long race cannot grow it without limit.
+	constexpr double ReplayWindowSeconds = 4.0;
+
+	FReplayFrame Frame;
+	Frame.Clock = RaceClock;
+	Frame.Positions.Reserve(Runners.Num());
+	for (const AWSSprintRunner* Runner : Runners)
+	{
+		Frame.Positions.Add(Runner->GetActorLocation());
+	}
+	ReplayFrames.Add(MoveTemp(Frame));
+
+	int32 Drop = 0;
+	while (Drop < ReplayFrames.Num() &&
+		RaceClock - ReplayFrames[Drop].Clock > ReplayWindowSeconds)
+	{
+		++Drop;
+	}
+	if (Drop > 0)
+	{
+		ReplayFrames.RemoveAt(0, Drop);
+	}
+}
+
+void AWSSprintGameMode::PlayFinishReplay()
+{
+	if (ReplayFrames.Num() < 2)
+	{
+		return;
+	}
+	ReplayCursor = 0;
+	ReplayTime = static_cast<float>(ReplayFrames[0].Clock);
+}
+
+void AWSSprintGameMode::TickReplay(float DeltaSeconds)
+{
+	if (ReplayCursor == INDEX_NONE || ReplayFrames.Num() < 2)
+	{
+		return;
+	}
+	// Half speed: the whole point of a finish replay is to see the order
+	// that the live camera swept past.
+	ReplayTime += DeltaSeconds * 0.5f;
+
+	while (ReplayCursor < ReplayFrames.Num() - 1 &&
+		ReplayFrames[ReplayCursor + 1].Clock <= ReplayTime)
+	{
+		++ReplayCursor;
+	}
+	if (ReplayCursor >= ReplayFrames.Num() - 1)
+	{
+		ReplayCursor = INDEX_NONE; // finished; runners stay where they ended
+		return;
+	}
+
+	const FReplayFrame& From = ReplayFrames[ReplayCursor];
+	const FReplayFrame& To = ReplayFrames[ReplayCursor + 1];
+	const double Span = FMath::Max(To.Clock - From.Clock, KINDA_SMALL_NUMBER);
+	const float Alpha = FMath::Clamp(
+		static_cast<float>((ReplayTime - From.Clock) / Span), 0.0f, 1.0f);
+
+	for (int32 Index = 0; Index < Runners.Num(); ++Index)
+	{
+		if (From.Positions.IsValidIndex(Index) && To.Positions.IsValidIndex(Index))
+		{
+			Runners[Index]->SetActorLocation(
+				FMath::Lerp(From.Positions[Index], To.Positions[Index], Alpha));
+		}
+	}
 }
 
 void AWSSprintGameMode::BuildStandings()

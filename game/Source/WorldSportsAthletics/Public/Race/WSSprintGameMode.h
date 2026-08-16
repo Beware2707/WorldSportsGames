@@ -11,6 +11,30 @@ class AWSSprintRunner;
 class AWSSprintTrack;
 class UWSSprintHud;
 
+/** Which screen the app is showing. The race lifecycle phases live on the
+ * game state; this is the layer above them. */
+UENUM(BlueprintType)
+enum class EWSAppState : uint8
+{
+	Menu,
+	SignIn,
+	Racing,
+	Leaderboard,
+	Settings
+};
+
+/** One row of the server's leaderboard. */
+USTRUCT(BlueprintType)
+struct WORLDSPORTSATHLETICS_API FWSLeaderboardRow
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Race") int32 Rank = 0;
+	UPROPERTY(BlueprintReadOnly, Category = "Race") FString AthleteName;
+	UPROPERTY(BlueprintReadOnly, Category = "Race") FString Country;
+	UPROPERTY(BlueprintReadOnly, Category = "Race") FString ValueText;
+};
+
 /** One finisher, for the result screen. */
 USTRUCT(BlueprintType)
 struct WORLDSPORTSATHLETICS_API FWSRaceStanding
@@ -59,6 +83,67 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Race")
 	void StartRace();
 
+	// -- Screen flow -----------------------------------------------------
+
+	UFUNCTION(BlueprintPure, Category = "Race")
+	EWSAppState GetAppState() const { return AppState; }
+
+	UFUNCTION(BlueprintCallable, Category = "Race")
+	void ShowScreen(EWSAppState NewState);
+
+	/** Menu → Quick Play: clears the field and starts a fresh race. */
+	UFUNCTION(BlueprintCallable, Category = "Race")
+	void StartQuickPlay();
+
+	/** Leave the race and return to the menu (mid-race = abandoned run). */
+	UFUNCTION(BlueprintCallable, Category = "Race")
+	void ReturnToMenu();
+
+	UFUNCTION(BlueprintCallable, Category = "Race")
+	void SetPaused(bool bPause);
+
+	UFUNCTION(BlueprintPure, Category = "Race")
+	bool IsPaused() const { return bPaused; }
+
+	/** Replay the last seconds of the finish, from the recorded positions. */
+	UFUNCTION(BlueprintCallable, Category = "Race")
+	void PlayFinishReplay();
+
+	UFUNCTION(BlueprintPure, Category = "Race")
+	bool IsReplaying() const { return ReplayCursor != INDEX_NONE; }
+
+	// -- Leaderboard -----------------------------------------------------
+
+	/** Fetch the global 100m board. Anonymous is fine — the server allows
+	 * the global scope without a token. */
+	UFUNCTION(BlueprintCallable, Category = "Race")
+	void RefreshLeaderboard();
+
+	UFUNCTION(BlueprintPure, Category = "Race")
+	const TArray<FWSLeaderboardRow>& GetLeaderboard() const { return LeaderboardRows; }
+
+	UFUNCTION(BlueprintPure, Category = "Race")
+	FString GetLeaderboardStatus() const { return LeaderboardStatus; }
+
+	// -- Account ---------------------------------------------------------
+
+	/** Sign in (or register when bRegister) with credentials the PLAYER
+	 * typed on their own device. Nothing is stored beyond the session. */
+	void SubmitCredentials(const FString& Email, const FString& Password,
+		const FString& DisplayName, bool bRegister);
+
+	UFUNCTION(BlueprintPure, Category = "Race")
+	FString GetAccountStatus() const { return AccountStatus; }
+
+	UFUNCTION(BlueprintPure, Category = "Race")
+	bool IsSignedIn() const;
+
+	UFUNCTION(BlueprintPure, Category = "Race")
+	FString GetSignedInName() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Race")
+	void SignOut();
+
 	/** Test hook: deliver a submit answer belonging to the PREVIOUS race
 	 * through the real, generation-guarded handler. */
 	void DebugDeliverStaleSubmit();
@@ -90,6 +175,12 @@ protected:
 private:
 	void SpawnField();
 	void UpdateCamera(float DeltaSeconds);
+	/** Keep the last few seconds of every runner's position so the finish
+	 * can be replayed. Cosmetic only — never fed back into a simulation. */
+	void RecordReplayFrame();
+	void TickReplay(float DeltaSeconds);
+	void InitAudio();
+	void TickAudio(float DeltaSeconds);
 	void BuildStandings();
 	void SubmitPlayerResult();
 	/** The one place a submit answer is applied, guarded by Generation. */
@@ -118,6 +209,34 @@ private:
 
 	TArray<FWSSprintInputEvent> PlayerTrace; // submitted digest source
 	TArray<FWSRaceStanding> Standings;
+
+	/** One recorded instant of the finish, for the replay. */
+	struct FReplayFrame
+	{
+		double Clock = 0.0;
+		TArray<FVector> Positions;
+	};
+	TArray<FReplayFrame> ReplayFrames;
+	int32 ReplayCursor = INDEX_NONE;
+	float ReplayTime = 0.0f;
+
+	// Generated cues; see WSSprintAudio.h for why they are synthesised.
+	UPROPERTY() TObjectPtr<class USoundWaveProcedural> GunSound;
+	UPROPERTY() TObjectPtr<class USoundWaveProcedural> MarksSound;
+	UPROPERTY() TObjectPtr<class USoundWaveProcedural> SetSound;
+	UPROPERTY() TObjectPtr<class USoundWaveProcedural> FootfallSound;
+	UPROPERTY() TObjectPtr<class USoundWaveProcedural> FinishSound;
+	bool bPlayedMarks = false;
+	bool bPlayedSet = false;
+	bool bPlayedGun = false;
+	bool bPlayedFinish = false;
+	double NextFootfallDistance = 0.0;
+
+	EWSAppState AppState = EWSAppState::Menu;
+	bool bPaused = false;
+	TArray<FWSLeaderboardRow> LeaderboardRows;
+	FString LeaderboardStatus;
+	FString AccountStatus;
 
 	double RaceClock = 0.0;
 	double SetDurationSeconds = 3.0;

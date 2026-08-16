@@ -1,13 +1,16 @@
 #include "Race/WSSprintHud.h"
 
+#include "Core/WSDeviceProfileSubsystem.h"
 #include "Framework/WSEventPhase.h"
 #include "Race/WSSprintGameMode.h"
 #include "Race/WSSprintRunner.h"
 #include "Styling/CoreStyle.h"
 #include "Widgets/Images/SImage.h"
 #include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SScaleBox.h"
+#include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/SOverlay.h"
 #include "Widgets/Text/STextBlock.h"
@@ -31,6 +34,24 @@ FText FormatSeconds(double Seconds)
 	const int32 Hundredths = static_cast<int32>(Seconds * 100.0);
 	return FText::FromString(FString::Printf(
 		TEXT("%d.%02d"), Hundredths / 100, Hundredths % 100));
+}
+
+/** A big, thumb-sized button — every touch target is at least 64px tall. */
+TSharedRef<SWidget> MenuButton(const FText& Label, FOnClicked OnClicked, float Width = 380.0f)
+{
+	return SNew(SBox)
+		.WidthOverride(Width)
+		.HeightOverride(72.0f)
+		.Padding(FMargin(0.0f, 6.0f))
+		[
+			SNew(SButton)
+			.HAlign(HAlign_Center)
+			.VAlign(VAlign_Center)
+			.OnClicked(OnClicked)
+			[
+				SNew(STextBlock).Font(Font(22, true)).Text(Label)
+			]
+		];
 }
 }
 
@@ -150,6 +171,277 @@ public:
 				]
 			]
 
+			// --- Pause button, only while a race is live -----------------
+			+ SOverlay::Slot()
+			.HAlign(HAlign_Right).VAlign(VAlign_Top)
+			.Padding(0.0f, 76.0f, 24.0f, 0.0f)
+			[
+				SNew(SBox)
+				.WidthOverride(120.0f).HeightOverride(64.0f)
+				.Visibility(this, &SWSSprintHudPanel::GetPauseButtonVisibility)
+				[
+					SNew(SButton)
+					.HAlign(HAlign_Center).VAlign(VAlign_Center)
+					.OnClicked(this, &SWSSprintHudPanel::OnPause)
+					[
+						SNew(STextBlock).Font(Font(18, true))
+						.Text(LOCTEXT("Pause", "II"))
+					]
+				]
+			]
+
+			// --- Screens: menu / sign-in / leaderboard / settings -------
+			+ SOverlay::Slot()
+			.HAlign(HAlign_Fill).VAlign(VAlign_Fill)
+			[
+				SNew(SOverlay)
+				.Visibility(this, &SWSSprintHudPanel::GetScreenVisibility)
+
+				+ SOverlay::Slot()
+				[
+					SNew(SImage).ColorAndOpacity(FLinearColor(0.02f, 0.03f, 0.06f, 0.97f))
+				]
+
+				// Menu
+				+ SOverlay::Slot()
+				.HAlign(HAlign_Center).VAlign(VAlign_Center)
+				[
+					SNew(SVerticalBox)
+					.Visibility(this, &SWSSprintHudPanel::GetMenuVisibility)
+					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0, 0, 0, 6)
+					[
+						SNew(STextBlock).Font(Font(44, true))
+						.ColorAndOpacity(FLinearColor::White)
+						.Text(LOCTEXT("Title", "100 METRES"))
+					]
+					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0, 0, 0, 20)
+					[
+						SNew(STextBlock).Font(Font(16))
+						.ColorAndOpacity(FLinearColor(0.7f, 0.78f, 0.9f))
+						.Text(this, &SWSSprintHudPanel::GetAccountLine)
+					]
+					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
+					[
+						MenuButton(LOCTEXT("QuickPlay", "Quick Play"),
+							FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnQuickPlay))
+					]
+					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
+					[
+						MenuButton(LOCTEXT("Leaderboard", "Leaderboard"),
+							FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnLeaderboard))
+					]
+					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
+					[
+						MenuButton(LOCTEXT("Account", "Account"),
+							FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnAccount))
+					]
+					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
+					[
+						MenuButton(LOCTEXT("Settings", "Settings"),
+							FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnSettings))
+					]
+				]
+
+				// Sign in / register
+				+ SOverlay::Slot()
+				.HAlign(HAlign_Center).VAlign(VAlign_Center)
+				[
+					SNew(SBox).WidthOverride(560.0f)
+					.Visibility(this, &SWSSprintHudPanel::GetSignInVisibility)
+					[
+						SNew(SVerticalBox)
+						+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 14)
+						[
+							SNew(STextBlock).Font(Font(30, true))
+							.ColorAndOpacity(FLinearColor::White)
+							.Text(LOCTEXT("AccountTitle", "Account"))
+						]
+						+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 10)
+						[
+							SNew(STextBlock).Font(Font(15))
+							.ColorAndOpacity(FLinearColor(0.7f, 0.78f, 0.9f))
+							.Text(LOCTEXT("AccountWhy",
+								"Sign in to record results, earn XP and enter leaderboards.\n"
+								"Results you run offline are kept and submitted later."))
+						]
+						+ SVerticalBox::Slot().AutoHeight().Padding(0, 4)
+						[
+							SAssignNew(EmailBox, SEditableTextBox)
+							.Font(Font(20))
+							.HintText(LOCTEXT("Email", "Email"))
+						]
+						+ SVerticalBox::Slot().AutoHeight().Padding(0, 4)
+						[
+							SAssignNew(PasswordBox, SEditableTextBox)
+							.Font(Font(20))
+							.IsPassword(true)
+							.HintText(LOCTEXT("Password", "Password (8+ characters)"))
+						]
+						+ SVerticalBox::Slot().AutoHeight().Padding(0, 4)
+						[
+							SAssignNew(NameBox, SEditableTextBox)
+							.Font(Font(20))
+							.HintText(LOCTEXT("DisplayName", "Display name (new accounts)"))
+						]
+						+ SVerticalBox::Slot().AutoHeight().Padding(0, 10, 0, 0)
+						[
+							SNew(SHorizontalBox)
+							+ SHorizontalBox::Slot().AutoWidth()
+							[
+								MenuButton(LOCTEXT("SignIn", "Sign in"),
+									FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnSignIn), 260.0f)
+							]
+							+ SHorizontalBox::Slot().AutoWidth().Padding(10, 0, 0, 0)
+							[
+								MenuButton(LOCTEXT("Register", "Create account"),
+									FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnRegister), 280.0f)
+							]
+						]
+						+ SVerticalBox::Slot().AutoHeight().Padding(0, 10)
+						[
+							SNew(STextBlock).Font(Font(16))
+							.ColorAndOpacity(FLinearColor(0.85f, 0.9f, 1.0f))
+							.AutoWrapText(true)
+							.Text(this, &SWSSprintHudPanel::GetAccountStatus)
+						]
+						+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0, 6)
+						[
+							SNew(SHorizontalBox)
+							+ SHorizontalBox::Slot().AutoWidth()
+							[
+								MenuButton(LOCTEXT("SignOut", "Sign out"),
+									FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnSignOut), 220.0f)
+							]
+							+ SHorizontalBox::Slot().AutoWidth().Padding(10, 0, 0, 0)
+							[
+								MenuButton(LOCTEXT("Back", "Back"),
+									FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnBackToMenu), 220.0f)
+							]
+						]
+					]
+				]
+
+				// Leaderboard
+				+ SOverlay::Slot()
+				.HAlign(HAlign_Center).VAlign(VAlign_Center)
+				[
+					SNew(SBox).WidthOverride(680.0f).HeightOverride(560.0f)
+					.Visibility(this, &SWSSprintHudPanel::GetLeaderboardVisibility)
+					[
+						SNew(SVerticalBox)
+						+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 10)
+						[
+							SNew(STextBlock).Font(Font(30, true))
+							.ColorAndOpacity(FLinearColor::White)
+							.Text(LOCTEXT("BoardTitle", "100m · Global · All time"))
+						]
+						+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 8)
+						[
+							SNew(STextBlock).Font(Font(16))
+							.ColorAndOpacity(FLinearColor(0.85f, 0.9f, 1.0f))
+							.Text(this, &SWSSprintHudPanel::GetLeaderboardStatus)
+						]
+						+ SVerticalBox::Slot().FillHeight(1.0f)
+						[
+							SNew(SScrollBox)
+							+ SScrollBox::Slot()
+							[
+								SNew(STextBlock).Font(Font(18))
+								.ColorAndOpacity(FLinearColor(0.9f, 0.9f, 0.92f))
+								.Text(this, &SWSSprintHudPanel::GetLeaderboardText)
+							]
+						]
+						+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0, 10, 0, 0)
+						[
+							MenuButton(LOCTEXT("Back", "Back"),
+								FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnBackToMenu), 260.0f)
+						]
+					]
+				]
+
+				// Settings
+				+ SOverlay::Slot()
+				.HAlign(HAlign_Center).VAlign(VAlign_Center)
+				[
+					SNew(SVerticalBox)
+					.Visibility(this, &SWSSprintHudPanel::GetSettingsVisibility)
+					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0, 0, 0, 12)
+					[
+						SNew(STextBlock).Font(Font(30, true))
+						.ColorAndOpacity(FLinearColor::White)
+						.Text(LOCTEXT("SettingsTitle", "Settings"))
+					]
+					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0, 0, 0, 10)
+					[
+						SNew(STextBlock).Font(Font(17))
+						.ColorAndOpacity(FLinearColor(0.75f, 0.82f, 0.95f))
+						.Text(this, &SWSSprintHudPanel::GetQualityText)
+					]
+					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot().AutoWidth()
+						[
+							MenuButton(LOCTEXT("QualityLow", "Low"),
+								FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnQualityLow), 180.0f)
+						]
+						+ SHorizontalBox::Slot().AutoWidth().Padding(8, 0)
+						[
+							MenuButton(LOCTEXT("QualityMid", "Medium"),
+								FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnQualityMid), 180.0f)
+						]
+						+ SHorizontalBox::Slot().AutoWidth()
+						[
+							MenuButton(LOCTEXT("QualityHigh", "High"),
+								FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnQualityHigh), 180.0f)
+						]
+					]
+					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0, 18, 0, 0)
+					[
+						MenuButton(LOCTEXT("Back", "Back"),
+							FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnBackToMenu), 260.0f)
+					]
+				]
+			]
+
+			// --- Pause overlay ------------------------------------------
+			+ SOverlay::Slot()
+			.HAlign(HAlign_Fill).VAlign(VAlign_Fill)
+			[
+				SNew(SOverlay)
+				.Visibility(this, &SWSSprintHudPanel::GetPauseOverlayVisibility)
+				+ SOverlay::Slot()
+				[
+					SNew(SImage).ColorAndOpacity(FLinearColor(0.0f, 0.0f, 0.0f, 0.8f))
+				]
+				+ SOverlay::Slot()
+				.HAlign(HAlign_Center).VAlign(VAlign_Center)
+				[
+					SNew(SVerticalBox)
+					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0, 0, 0, 16)
+					[
+						SNew(STextBlock).Font(Font(34, true))
+						.ColorAndOpacity(FLinearColor::White)
+						.Text(LOCTEXT("Paused", "Paused"))
+					]
+					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
+					[
+						MenuButton(LOCTEXT("Resume", "Resume"),
+							FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnResume))
+					]
+					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
+					[
+						MenuButton(LOCTEXT("RestartRace", "Restart race"),
+							FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnRaceAgain))
+					]
+					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
+					[
+						MenuButton(LOCTEXT("QuitToMenu", "Quit to menu"),
+							FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnQuitToMenu))
+					]
+				]
+			]
+
 			// --- Result panel -------------------------------------------
 			+ SOverlay::Slot()
 			.HAlign(HAlign_Center).VAlign(VAlign_Center)
@@ -190,16 +482,21 @@ public:
 						]
 						+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
 						[
-							SNew(SBox).WidthOverride(280.0f).HeightOverride(64.0f)
+							SNew(SHorizontalBox)
+							+ SHorizontalBox::Slot().AutoWidth()
 							[
-								SNew(SButton)
-								.HAlign(HAlign_Center).VAlign(VAlign_Center)
-								.OnClicked(this, &SWSSprintHudPanel::OnRaceAgain)
-								[
-									SNew(STextBlock)
-									.Font(Font(22, true))
-									.Text(LOCTEXT("RaceAgain", "Race again"))
-								]
+								MenuButton(LOCTEXT("RaceAgain", "Race again"),
+									FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnRaceAgain), 240.0f)
+							]
+							+ SHorizontalBox::Slot().AutoWidth().Padding(8, 0)
+							[
+								MenuButton(LOCTEXT("Replay", "Replay finish"),
+									FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnReplay), 240.0f)
+							]
+							+ SHorizontalBox::Slot().AutoWidth()
+							[
+								MenuButton(LOCTEXT("Menu", "Menu"),
+									FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnQuitToMenu), 180.0f)
 							]
 						]
 					]
@@ -478,12 +775,229 @@ private:
 	{
 		if (AWSSprintGameMode* GameModePtr = Mode())
 		{
-			GameModePtr->StartRace();
+			GameModePtr->StartQuickPlay();
 		}
 		return FReply::Handled();
 	}
 
+	// -- Screen visibility ----------------------------------------------
+
+	EVisibility GetScreenVisibility() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		return GameModePtr && GameModePtr->GetAppState() != EWSAppState::Racing
+			? EVisibility::SelfHitTestInvisible
+			: EVisibility::Collapsed;
+	}
+
+	EVisibility VisibleWhen(EWSAppState State) const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		return GameModePtr && GameModePtr->GetAppState() == State
+			? EVisibility::SelfHitTestInvisible
+			: EVisibility::Collapsed;
+	}
+
+	EVisibility GetMenuVisibility() const { return VisibleWhen(EWSAppState::Menu); }
+	EVisibility GetSignInVisibility() const { return VisibleWhen(EWSAppState::SignIn); }
+	EVisibility GetLeaderboardVisibility() const { return VisibleWhen(EWSAppState::Leaderboard); }
+	EVisibility GetSettingsVisibility() const { return VisibleWhen(EWSAppState::Settings); }
+
+	EVisibility GetPauseButtonVisibility() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		if (!GameModePtr || GameModePtr->GetAppState() != EWSAppState::Racing ||
+			GameModePtr->IsPaused())
+		{
+			return EVisibility::Collapsed;
+		}
+		const EWSEventPhase Phase = GameModePtr->GetPhase();
+		return (Phase == EWSEventPhase::Ready || Phase == EWSEventPhase::Active)
+			? EVisibility::Visible
+			: EVisibility::Collapsed;
+	}
+
+	EVisibility GetPauseOverlayVisibility() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		return GameModePtr && GameModePtr->IsPaused()
+			? EVisibility::SelfHitTestInvisible
+			: EVisibility::Collapsed;
+	}
+
+	// -- Screen content --------------------------------------------------
+
+	FText GetAccountLine() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		if (!GameModePtr)
+		{
+			return FText::GetEmpty();
+		}
+		// Never imply results are being recorded when they are not.
+		return GameModePtr->IsSignedIn()
+			? FText::FromString(FString::Printf(
+				TEXT("Signed in as %s — results count"), *GameModePtr->GetSignedInName()))
+			: LOCTEXT("NotSignedIn", "Not signed in — races are practice only");
+	}
+
+	FText GetAccountStatus() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		return GameModePtr ? FText::FromString(GameModePtr->GetAccountStatus()) : FText::GetEmpty();
+	}
+
+	FText GetLeaderboardStatus() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		return GameModePtr ? FText::FromString(GameModePtr->GetLeaderboardStatus()) : FText::GetEmpty();
+	}
+
+	FText GetLeaderboardText() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		if (!GameModePtr)
+		{
+			return FText::GetEmpty();
+		}
+		FString Text;
+		for (const FWSLeaderboardRow& Row : GameModePtr->GetLeaderboard())
+		{
+			Text += FString::Printf(TEXT("%3d.  %-22s  %8s  %s\n"),
+				Row.Rank, *Row.AthleteName, *Row.ValueText, *Row.Country);
+		}
+		return FText::FromString(Text);
+	}
+
+	FText GetQualityText() const
+	{
+		const UWSDeviceProfileSubsystem* Device = DeviceProfile();
+		if (!Device)
+		{
+			return FText::GetEmpty();
+		}
+		switch (Device->GetTier())
+		{
+		case EWSDeviceTier::Low:  return LOCTEXT("TierLow", "Quality: Low (30 fps target)");
+		case EWSDeviceTier::High: return LOCTEXT("TierHigh", "Quality: High (60 fps target)");
+		default:                  return LOCTEXT("TierMid", "Quality: Medium (30 fps target)");
+		}
+	}
+
+	UWSDeviceProfileSubsystem* DeviceProfile() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		UGameInstance* GameInstance = GameModePtr ? GameModePtr->GetGameInstance() : nullptr;
+		return GameInstance ? GameInstance->GetSubsystem<UWSDeviceProfileSubsystem>() : nullptr;
+	}
+
+	// -- Screen actions --------------------------------------------------
+
+	FReply OnQuickPlay()
+	{
+		if (AWSSprintGameMode* GameModePtr = Mode())
+		{
+			GameModePtr->StartQuickPlay();
+		}
+		return FReply::Handled();
+	}
+
+	FReply OnLeaderboard() { return Show(EWSAppState::Leaderboard); }
+	FReply OnAccount() { return Show(EWSAppState::SignIn); }
+	FReply OnSettings() { return Show(EWSAppState::Settings); }
+	FReply OnBackToMenu() { return Show(EWSAppState::Menu); }
+
+	FReply Show(EWSAppState State)
+	{
+		if (AWSSprintGameMode* GameModePtr = Mode())
+		{
+			GameModePtr->ShowScreen(State);
+		}
+		return FReply::Handled();
+	}
+
+	FReply OnSignIn() { return Authenticate(/*bRegister=*/false); }
+	FReply OnRegister() { return Authenticate(/*bRegister=*/true); }
+
+	FReply Authenticate(bool bRegister)
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		if (GameModePtr && EmailBox.IsValid() && PasswordBox.IsValid())
+		{
+			// The player typed these on their own device; they go straight to
+			// the backend over the configured connection and are never stored.
+			GameModePtr->SubmitCredentials(
+				EmailBox->GetText().ToString(),
+				PasswordBox->GetText().ToString(),
+				NameBox.IsValid() ? NameBox->GetText().ToString() : FString(),
+				bRegister);
+			PasswordBox->SetText(FText::GetEmpty());
+		}
+		return FReply::Handled();
+	}
+
+	FReply OnSignOut()
+	{
+		if (AWSSprintGameMode* GameModePtr = Mode())
+		{
+			GameModePtr->SignOut();
+		}
+		return FReply::Handled();
+	}
+
+	FReply OnPause()
+	{
+		if (AWSSprintGameMode* GameModePtr = Mode())
+		{
+			GameModePtr->SetPaused(true);
+		}
+		return FReply::Handled();
+	}
+
+	FReply OnResume()
+	{
+		if (AWSSprintGameMode* GameModePtr = Mode())
+		{
+			GameModePtr->SetPaused(false);
+		}
+		return FReply::Handled();
+	}
+
+	FReply OnQuitToMenu()
+	{
+		if (AWSSprintGameMode* GameModePtr = Mode())
+		{
+			GameModePtr->ReturnToMenu();
+		}
+		return FReply::Handled();
+	}
+
+	FReply OnReplay()
+	{
+		if (AWSSprintGameMode* GameModePtr = Mode())
+		{
+			GameModePtr->PlayFinishReplay();
+		}
+		return FReply::Handled();
+	}
+
+	FReply SetTier(EWSDeviceTier Tier)
+	{
+		if (UWSDeviceProfileSubsystem* Device = DeviceProfile())
+		{
+			Device->OverrideTier(Tier);
+		}
+		return FReply::Handled();
+	}
+
+	FReply OnQualityLow() { return SetTier(EWSDeviceTier::Low); }
+	FReply OnQualityMid() { return SetTier(EWSDeviceTier::Mid); }
+	FReply OnQualityHigh() { return SetTier(EWSDeviceTier::High); }
+
 	TWeakObjectPtr<AWSSprintGameMode> GameMode;
+	TSharedPtr<SEditableTextBox> EmailBox;
+	TSharedPtr<SEditableTextBox> PasswordBox;
+	TSharedPtr<SEditableTextBox> NameBox;
 };
 
 void UWSSprintHud::BindGameMode(AWSSprintGameMode* InGameMode)
