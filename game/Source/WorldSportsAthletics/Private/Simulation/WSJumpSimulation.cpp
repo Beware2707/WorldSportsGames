@@ -189,10 +189,14 @@ void FWSJumpSimulation::Land()
 	const double Measured = Raw - Outcome.BoardGapMetres;
 
 	// A jump that does not reach the pit is NOT a jump of zero metres — it
-	// is a failed attempt, exactly as it is on a real runway. Recording it
-	// as 0.00m claimed a measurement that was never taken, and the server
-	// would refuse it anyway for being below the plausible minimum.
-	if (Measured <= 0.0)
+	// is a failed attempt, exactly as it is on a real runway.
+	//
+	// The threshold is the SERVER's plausible minimum, not zero. Between
+	// the two lies a band of marks the client would happily measure and the
+	// server would then refuse as implausible — a jump the player is shown,
+	// told counts, and then told does not. Using the server's own limit
+	// means the client never offers a mark that cannot stand.
+	if (Measured < EventSpec.MinPlausibleMetres)
 	{
 		Outcome.bFoul = true;
 		Outcome.bOverstepped = false;

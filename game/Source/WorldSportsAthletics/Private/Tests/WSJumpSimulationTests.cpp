@@ -86,6 +86,13 @@ bool FWSJumpCeilingTest::RunTest(const FString&)
 						TEXT("%s attrs %.0f seed %u: a perfect approach does not foul"),
 						*Spec.Code, Level, Seed),
 					Outcome.bFoul);
+				// Every mark the client reports must be one the server can
+				// accept: above its plausible minimum, below its maximum.
+				TestTrue(FString::Printf(
+						TEXT("%s attrs %.0f seed %u: %.2f m is a mark the server accepts"),
+						*Spec.Code, Level, Seed, Outcome.DistanceMetres),
+					Outcome.DistanceMetres >= Spec.MinPlausibleMetres &&
+						Outcome.DistanceMetres <= Spec.MaxPlausibleMetres);
 				if (Outcome.DistanceMetres > BestMark)
 				{
 					BestMark = Outcome.DistanceMetres;
@@ -235,6 +242,10 @@ bool FWSJumpFoulTest::RunTest(const FString&)
 		const FWSJumpOutcome ShortOfPit =
 			FWSJumpSimulation::RunTrace(Attributes, 9u, FarTooEarly, Spec);
 		TestTrue(TEXT("a jump short of the pit is no mark"), ShortOfPit.bFoul);
+		// The cut is the SERVER's plausible minimum, so the client can never
+		// measure a mark the server would refuse as implausible.
+		TestTrue(TEXT("no mark is recorded below the server's minimum"),
+			ShortOfPit.DistanceMetres == 0.0);
 		TestFalse(TEXT("and it was not an overstep"), ShortOfPit.bOverstepped);
 		TestEqual(TEXT("no mark means no measurement"),
 			ShortOfPit.DistanceMetres, 0.0);
