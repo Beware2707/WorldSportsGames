@@ -68,6 +68,23 @@ public:
 
 	bool IsScripted() const { return ScriptedFinishSeconds > 0.0; }
 
+	/** Metres to the next barrier, or -1 when there is none ahead. */
+	double MetresToNextHurdle() const
+	{
+		if (!Simulation.IsValid())
+		{
+			return -1.0;
+		}
+		const double Barrier = Simulation->NextHurdleMetres();
+		return Barrier < 0.0 ? -1.0 : Barrier - Simulation->GetState().Distance;
+	}
+
+	/** Barriers this run has hit badly. Feedback only, never a claim. */
+	int32 GetHurdlesClattered() const
+	{
+		return Simulation.IsValid() ? Simulation->GetHurdlesClattered() : 0;
+	}
+
 	/** Metres between this event's split marks. */
 	double GetSplitSegmentMetres() const;
 

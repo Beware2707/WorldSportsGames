@@ -130,6 +130,31 @@ struct WORLDSPORTSATHLETICS_API FWSSprintEventSpec
 
 	/** Where the lean is allowed, as a fraction of the race. */
 	double LeanWindowFraction = 0.95;
+
+	// --- Hurdles -------------------------------------------------------
+	// A hurdles race is NOT a new event kind: it keeps the blocks, the
+	// reaction, the wind and the cadence band. What it adds is a second
+	// skill on top of the rhythm — every barrier has to be taken off for
+	// at the right moment — so it lives here as three numbers rather than
+	// as a parallel simulation.
+
+	/** 0 means a flat race. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Event")
+	int32 HurdleCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Event")
+	double FirstHurdleMetres = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Event")
+	double HurdleSpacingMetres = 0.0;
+
+	bool HasHurdles() const { return HurdleCount > 0; }
+
+	/** Where the Index-th barrier stands, in metres from the start. */
+	double HurdleMetres(int32 Index) const
+	{
+		return FirstHurdleMetres + HurdleSpacingMetres * Index;
+	}
 };
 
 namespace WSSprintEvents

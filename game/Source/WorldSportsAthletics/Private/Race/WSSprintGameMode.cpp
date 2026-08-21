@@ -27,6 +27,10 @@ constexpr double MinSetSeconds = 2.2;
 constexpr double MaxSetSeconds = 4.6;
 constexpr float ResultDwellSeconds = 1.2f;
 const TCHAR* DefaultEventCode = TEXT("sprint-100m");
+// How far ahead a barrier arms the takeoff action, and prompts for it.
+// Wide enough to press early and still be judged on the timing, narrow
+// enough that it never swallows the dip at the line.
+constexpr double HurdlePromptMetres = 7.0;
 
 const TCHAR* OpponentNames[] = {
 	TEXT("A. Mensah"), TEXT("K. Ito"), TEXT("L. Duarte"), TEXT("R. Novak"),
@@ -1532,6 +1536,19 @@ void AWSSprintGameMode::PlayerLean()
 		PlayerEffort = 1.0;
 		return;
 	}
+	// One contextual action button. With a barrier close ahead it is the
+	// takeoff; otherwise it is the dip at the line. A hurdler pressing
+	// "lean" three metres from a hurdle means to jump it, and giving that
+	// two separate controls on a phone would be worse, not clearer.
+	const double ToHurdle = PlayerRunner->MetresToNextHurdle();
+	if (ToHurdle >= 0.0 && ToHurdle <= HurdlePromptMetres)
+	{
+		const FWSSprintInputEvent Takeoff{RaceClock, EWSSprintInputType::Hurdle};
+		PlayerTrace.Add(Takeoff);
+		PlayerRunner->PushInput(Takeoff);
+		return;
+	}
+
 	const FWSSprintInputEvent Event{RaceClock, EWSSprintInputType::Lean};
 	PlayerTrace.Add(Event);
 	PlayerRunner->PushInput(Event);

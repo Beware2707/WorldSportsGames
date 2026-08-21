@@ -32,6 +32,29 @@ constexpr double PreGunSeconds = 3.0;
 // 100m, so a fixed cap would abandon a slow-but-honest one-lap run.
 constexpr double SafetyCapSecondsPer100m = 90.0;
 
+// --- Hurdles ---------------------------------------------------------
+// Clearing a barrier always costs something; the skill is how little.
+/** Metres before the barrier where the takeoff should happen. */
+constexpr double HurdleIdealTakeoffMetres = 2.05;
+/** How far from ideal still counts as a takeoff at all. */
+constexpr double HurdleWindowMetres = 1.50;
+/** Technique widens that window — this is where it earns its place. */
+constexpr double HurdleWindowPerTechnique = 0.55;
+/**
+ * Speed multiplier for a PERFECTLY timed clearance, at zero technique and
+ * at full technique.
+ *
+ * Even a flawless barrier costs something, and it costs a novice far more
+ * than a specialist: clearing low and landing running is technique, not
+ * timing. A single factor for everyone made a hurdles race just a slightly
+ * interrupted sprint, and the whole field ran under the server's ceiling.
+ */
+constexpr double HurdleCleanAtZeroTechnique = 0.948;
+constexpr double HurdleCleanAtFullTechnique = 0.996;
+constexpr double HurdleClatterFactor = 0.880;
+/** Beyond this share of the window, the barrier counts as clattered. */
+constexpr double HurdleClatterThreshold = 0.6;
+
 double Normalized(float Attr)
 {
 	return FMath::Clamp(static_cast<double>(Attr), 0.0, 100.0) / 100.0;
@@ -184,6 +207,16 @@ void FWSSprintSimulation::ApplyEvent(const FWSSprintInputEvent& Event)
 		break;
 	}
 
+	case EWSSprintInputType::Hurdle:
+		// Record WHERE the takeoff was asked for. Distance, not time, is
+		// what matters: the barrier is at a place on the track, and a
+		// slower athlete legitimately takes off later in the race clock.
+		if (State.bReleased && EventSpec.HasHurdles())
+		{
+			TakeoffDistance = State.Distance;
+		}
+		break;
+
 	case EWSSprintInputType::Lean:
 		if (!State.bReleased || bLeanUsed)
 		{
@@ -324,6 +357,41 @@ bool FWSSprintSimulation::Step()
 		(1.45 - 0.65 * State.CadenceAccuracy) * StepDt;
 	State.Fatigue = FMath::Min(State.Fatigue, 1.0);
 
+	// --- Barriers ------------------------------------------------------
+	// Evaluated on crossing, from where the takeoff was asked for. A
+	// perfectly judged one costs almost nothing; a missed one is the
+	// classic hurdles disaster of hitting the barrier and losing the race.
+	while (EventSpec.HasHurdles() && NextHurdleIndex < EventSpec.HurdleCount &&
+		State.Distance >= EventSpec.HurdleMetres(NextHurdleIndex))
+	{
+		const double Barrier = EventSpec.HurdleMetres(NextHurdleIndex);
+		const double Window = HurdleWindowMetres +
+			HurdleWindowPerTechnique * Capped(Attributes.Technique);
+		// A takeoff only counts for the barrier it was made for: one asked
+		// for before the PREVIOUS barrier is long spent.
+		const double PreviousBarrier = NextHurdleIndex > 0
+			? EventSpec.HurdleMetres(NextHurdleIndex - 1)
+			: -1.0;
+		const double CleanFactor = FMath::Lerp(
+			HurdleCleanAtZeroTechnique, HurdleCleanAtFullTechnique,
+			Capped(Attributes.Technique));
+		double Normalised = 1.0; // no usable takeoff at all
+		if (TakeoffDistance > PreviousBarrier && TakeoffDistance <= Barrier)
+		{
+			const double Gap = Barrier - TakeoffDistance;
+			Normalised = FMath::Clamp(
+				FMath::Abs(Gap - HurdleIdealTakeoffMetres) / FMath::Max(Window, 0.01),
+				0.0, 1.0);
+		}
+		State.Speed *= FMath::Lerp(CleanFactor, HurdleClatterFactor, Normalised);
+		if (Normalised > HurdleClatterThreshold)
+		{
+			++HurdlesClattered;
+		}
+		TakeoffDistance = -1.0;
+		++NextHurdleIndex;
+	}
+
 	// --- 10m marks and the finish --------------------------------------
 	const double SegmentMetres = EventSpec.SplitCount > 0
 		? EventSpec.DistanceMetres / EventSpec.SplitCount
@@ -446,6 +514,12 @@ TArray<FWSSprintInputEvent> FWSSprintSimulation::GenerateAITrace(
 		Shadow.AddInput(Event);
 	}
 
+	// Hurdlers take off for each barrier; a sloppier one is late or early,
+	// which is exactly how a hurdles race is lost. Planned in the same
+	// closed loop as the taps, against the athlete's ACTUAL distance.
+	int32 NextHurdle = 0;
+	const double TakeoffError = Sloppiness * 1.3 * Gaussish();
+
 	double NextTapAt = ReleaseTime + 0.12; // first stride off the blocks
 	// The loop below ends when the shadow race ends, so a 400m simply taps
 	// for longer — no per-event tuning needed.
@@ -455,6 +529,17 @@ TArray<FWSSprintInputEvent> FWSSprintSimulation::GenerateAITrace(
 		if (!Live.bReleased)
 		{
 			continue;
+		}
+		while (InEventSpec.HasHurdles() && NextHurdle < InEventSpec.HurdleCount &&
+			Live.Distance >= InEventSpec.HurdleMetres(NextHurdle)
+				- WSSprint::HurdleIdealTakeoffMetres - TakeoffError)
+		{
+			FWSSprintInputEvent Takeoff;
+			Takeoff.TimeSeconds = Live.RaceTime;
+			Takeoff.Type = EWSSprintInputType::Hurdle;
+			Trace.Add(Takeoff);
+			Shadow.AddInput(Takeoff);
+			++NextHurdle;
 		}
 		while (NextTapAt <= Live.RaceTime)
 		{

@@ -71,6 +71,59 @@ const TArray<FWSSprintEventSpec>& All()
 			TEXT("stamina"), TEXT("recovery")};
 		Table.Add(Sprint400);
 
+		// Hurdles: the same kind, plus barriers. Technique governs them on
+		// the server, so it governs them here — and the takeoff window it
+		// buys is the only place a hurdler's technique shows up.
+		FWSSprintEventSpec Hurdles110;
+		Hurdles110.Code = TEXT("hurdles-110m");
+		Hurdles110.DisplayName = TEXT("110m Hurdles");
+		Hurdles110.DistanceMetres = 110.0;
+		Hurdles110.SplitCount = 10;          // 11m segments
+		Hurdles110.MinSplitSeconds = 0.85;
+		Hurdles110.MinPlausibleSeconds = 12.5;
+		Hurdles110.MaxPlausibleSeconds = 90.0;
+		Hurdles110.CeilingAtZero = 19.50;
+		Hurdles110.CeilingAtHundred = 12.90;
+		Hurdles110.DriveEndFraction = 0.125;  // 13.72m, the first barrier
+		Hurdles110.FatigueStartFraction = 0.85;
+		Hurdles110.FatigueScale = 1.15;
+		// A hurdler cannot run at flat-sprint speed: the stride pattern
+		// between barriers is fixed at three strides, which caps the top
+		// end regardless of how fast the athlete is on the flat.
+		Hurdles110.TopSpeedScale = 0.810;
+		Hurdles110.HurdleCount = 10;
+		Hurdles110.FirstHurdleMetres = 13.72; // regulation
+		Hurdles110.HurdleSpacingMetres = 9.14;
+		Hurdles110.GoverningAttributes = {
+			TEXT("reaction"), TEXT("acceleration"), TEXT("max_speed"),
+			TEXT("stride_efficiency"), TEXT("technique")};
+		Table.Add(Hurdles110);
+
+		FWSSprintEventSpec Hurdles400;
+		Hurdles400.Code = TEXT("hurdles-400m");
+		Hurdles400.DisplayName = TEXT("400m Hurdles");
+		Hurdles400.DistanceMetres = 400.0;
+		Hurdles400.SplitCount = 8;
+		Hurdles400.MinSplitSeconds = 4.2;
+		Hurdles400.MinPlausibleSeconds = 45.0;
+		Hurdles400.MaxPlausibleSeconds = 300.0;
+		Hurdles400.CeilingAtZero = 72.0;
+		Hurdles400.CeilingAtHundred = 46.10;
+		Hurdles400.DriveEndFraction = 0.075;
+		Hurdles400.FatigueStartFraction = 0.55;
+		Hurdles400.TopSpeedCurve = 1.43;
+		Hurdles400.TopSpeedScale = 0.884;
+		Hurdles400.FatigueScale = 2.6;
+		Hurdles400.FatigueDepthScale = 1.254;
+		Hurdles400.FatigueStaminaSpread = 0.345;
+		Hurdles400.HurdleCount = 10;
+		Hurdles400.FirstHurdleMetres = 45.0;  // regulation
+		Hurdles400.HurdleSpacingMetres = 35.0;
+		Hurdles400.GoverningAttributes = {
+			TEXT("acceleration"), TEXT("max_speed"), TEXT("stamina"),
+			TEXT("technique"), TEXT("recovery")};
+		Table.Add(Hurdles400);
+
 		return Table;
 	}();
 	return Events;

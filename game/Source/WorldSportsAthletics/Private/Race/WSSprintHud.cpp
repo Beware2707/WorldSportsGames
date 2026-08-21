@@ -159,6 +159,17 @@ public:
 				]
 			]
 
+			// --- The hurdler's takeoff prompt, above the cadence band ----
+			+ SOverlay::Slot()
+			.HAlign(HAlign_Center).VAlign(VAlign_Bottom)
+			.Padding(0.0f, 0.0f, 0.0f, 168.0f)
+			[
+				SNew(STextBlock).Font(Font(30, true))
+				.ColorAndOpacity(FLinearColor(1.0f, 0.86f, 0.35f))
+				.Visibility(this, &SWSSprintHudPanel::GetHurdleVisibility)
+				.Text(this, &SWSSprintHudPanel::GetHurdleText)
+			]
+
 			// --- The paced events' readout, where the cadence band sits --
 			+ SOverlay::Slot()
 			.HAlign(HAlign_Center).VAlign(VAlign_Bottom)
@@ -962,6 +973,31 @@ private:
 		return State && !State->bFinished
 			? EVisibility::HitTestInvisible
 			: EVisibility::Collapsed;
+	}
+
+	/** "HURDLE" when a barrier is close enough to take off for. */
+	FText GetHurdleText() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		AWSSprintRunner* Runner = GameModePtr ? GameModePtr->GetPlayerRunner() : nullptr;
+		if (!Runner || Runner->IsPaceEvent())
+		{
+			return FText::GetEmpty();
+		}
+		const double ToHurdle = Runner->MetresToNextHurdle();
+		if (ToHurdle < 0.0 || ToHurdle > 7.0)
+		{
+			return FText::GetEmpty();
+		}
+		// Counting down in metres, because the takeoff is judged in metres:
+		// the player is learning where to leave the ground, not when.
+		return FText::FromString(FString::Printf(TEXT("HURDLE  %.1f m"), ToHurdle));
+	}
+
+	EVisibility GetHurdleVisibility() const
+	{
+		return GetHurdleText().IsEmpty() ? EVisibility::Collapsed
+			: EVisibility::HitTestInvisible;
 	}
 
 	FText GetPaceText() const

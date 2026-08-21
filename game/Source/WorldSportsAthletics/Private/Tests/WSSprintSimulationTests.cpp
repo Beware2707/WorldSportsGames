@@ -245,6 +245,64 @@ bool FWSSprintLopsidedCeilingTest::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSHurdleTimingTest,
+	"WorldSports.Sprint.HurdleTimingCostsTime",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+bool FWSHurdleTimingTest::RunTest(const FString&)
+{
+	// A barrier that costs nothing is scenery, not a hurdle. The same
+	// athlete in the same race must lose real time for taking off badly,
+	// and lose more for not taking off at all.
+	for (const FWSSprintEventSpec& Spec : WSSprintEvents::All())
+	{
+		if (!Spec.HasHurdles())
+		{
+			continue;
+		}
+		const FWSSprintAttributes Attributes = UniformAttributes(65.0f);
+		for (const uint32 Seed : {4u, 88u, 1212u})
+		{
+			// Judged: the AI at full consistency takes off for every barrier.
+			const TArray<FWSSprintInputEvent> Judged =
+				BestRealisticTrace(Attributes, Seed, Spec);
+			// The same run with every takeoff stripped out — the athlete
+			// runs into all ten barriers.
+			TArray<FWSSprintInputEvent> NoTakeoffs;
+			int32 TakeoffCount = 0;
+			for (const FWSSprintInputEvent& Event : Judged)
+			{
+				if (Event.Type == EWSSprintInputType::Hurdle)
+				{
+					++TakeoffCount;
+					continue;
+				}
+				NoTakeoffs.Add(Event);
+			}
+			TestEqual(FString::Printf(TEXT("%s: a takeoff per barrier"), *Spec.Code),
+				TakeoffCount, Spec.HurdleCount);
+
+			const FWSRaceOutcome Good =
+				FWSSprintSimulation::RunTrace(Attributes, Seed, Judged, Spec);
+			const FWSRaceOutcome Bad =
+				FWSSprintSimulation::RunTrace(Attributes, Seed, NoTakeoffs, Spec);
+
+			TestTrue(TEXT("both finished"), Good.bFinished && Bad.bFinished);
+			// The cost has to be worth caring about. A tenth over ten
+			// barriers would be noise the player could rightly ignore.
+			const double Cost = Bad.TimeSeconds - Good.TimeSeconds;
+			TestTrue(FString::Printf(
+					TEXT("%s seed %u: hitting every barrier must cost real time ")
+					TEXT("(judged %.3f, unjudged %.3f, cost %.3f)"),
+					*Spec.Code, Seed, Good.TimeSeconds, Bad.TimeSeconds, Cost),
+				Cost > 0.5);
+			AddInfo(FString::Printf(
+				TEXT("HURDLE %-13s seed %4u  judged %7.3f  no takeoff %7.3f  cost %+.3f"),
+				*Spec.Code, Seed, Good.TimeSeconds, Bad.TimeSeconds, Cost));
+		}
+	}
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSSprintSkillDecidesTest,
 	"WorldSports.Sprint.CadenceAccuracyDecidesTheRace",
 	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)

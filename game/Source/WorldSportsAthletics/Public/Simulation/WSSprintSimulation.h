@@ -33,7 +33,8 @@ enum class EWSSprintInputType : uint8
 	HoldStart,   // settle into blocks (must be before the gun)
 	Release,     // leave the blocks — time vs gun = reaction
 	Tap,         // one stride-rhythm tap
-	Lean         // dip at the line (last metres only)
+	Lean,        // dip at the line (last metres only)
+	Hurdle       // take off for the barrier ahead (hurdles events only)
 };
 
 USTRUCT(BlueprintType)
@@ -137,6 +138,18 @@ public:
 		const FWSSprintEventSpec& InEvent);
 
 	const FWSSprintEventSpec& GetEvent() const { return EventSpec; }
+
+	/** How many barriers this run has hit badly. Presentation and coaching
+	 * only — never part of the performance claim sent to the server. */
+	int32 GetHurdlesClattered() const { return HurdlesClattered; }
+
+	/** The next barrier ahead, in metres; -1 once they are all behind. */
+	double NextHurdleMetres() const
+	{
+		return EventSpec.HasHurdles() && NextHurdleIndex < EventSpec.HurdleCount
+			? EventSpec.HurdleMetres(NextHurdleIndex)
+			: -1.0;
+	}
 	double GetRaceDistance() const { return EventSpec.DistanceMetres; }
 
 	/** Wind for this race, from the seed. Legal range biased: [-1.5, +2.0]. */
@@ -201,4 +214,12 @@ private:
 	double LeanBonusMetres = 0.0;
 	int32 NextSplitMark = 1; // segment marks 1..Event.SplitCount
 	double LastSplitTime = 0.0;
+
+	// --- Hurdles ---------------------------------------------------------
+	int32 NextHurdleIndex = 0;
+	/** Distance at which the last takeoff was asked for; negative if the
+	 * athlete has not asked for one since the previous barrier. */
+	double TakeoffDistance = -1.0;
+	/** Barriers cleared badly enough to count as a clatter, for feedback. */
+	int32 HurdlesClattered = 0;
 };

@@ -107,6 +107,43 @@ EVENTS: dict[str, CareerEvent] = {
         min_split_seconds=4.0,
         distance_m=400.0,
     ),
+    # --- Hurdles ---------------------------------------------------------
+    # NOT a new kind: a hurdles race is a sprint with barriers, so it keeps
+    # blocks, a reaction and wind. What it adds is a second skill on top of
+    # the cadence — the takeoff has to be right for every barrier, and
+    # technique governs it far more than raw speed does.
+    "hurdles-110m": CareerEvent(
+        code="hurdles-110m",
+        name="110m Hurdles",
+        value_kind="time",
+        lower_is_better=True,
+        min_plausible=12.5,          # the world record is 12.80
+        max_plausible=90.0,
+        governing_attributes=("reaction", "acceleration", "max_speed",
+                              "stride_efficiency", "technique"),
+        ceiling_at_zero=19.50,
+        ceiling_at_hundred=12.90,
+        splits_expected=10,          # 11m segments
+        requires_reaction=True,
+        min_split_seconds=0.85,
+        distance_m=110.0,
+    ),
+    "hurdles-400m": CareerEvent(
+        code="hurdles-400m",
+        name="400m Hurdles",
+        value_kind="time",
+        lower_is_better=True,
+        min_plausible=45.0,          # the world record is 45.94
+        max_plausible=300.0,
+        governing_attributes=("acceleration", "max_speed", "stamina",
+                              "technique", "recovery"),
+        ceiling_at_zero=72.0,
+        ceiling_at_hundred=46.10,
+        splits_expected=8,           # 50m segments
+        requires_reaction=True,
+        min_split_seconds=4.2,
+        distance_m=400.0,
+    ),
     # --- Middle distance -------------------------------------------------
     # A different KIND of event, not a longer sprint. There are no blocks and
     # so no reaction to measure (requires_reaction=False), and no wind is
