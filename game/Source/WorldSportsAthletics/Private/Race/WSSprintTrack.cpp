@@ -83,6 +83,18 @@ AWSSprintTrack::AWSSprintTrack()
 		}
 	}
 
+	// The jumping furniture: a board to hit and a pit to land in. Hidden
+	// until a field event asks for them.
+	TakeoffBoard = MakeBox(TEXT("TakeoffBoard"), FVector(0.0f, 0.0f, 1.0f),
+		FVector(10.0f, LaneWidthCm * 0.6f, 1.2f), FLinearColor(0.96f, 0.96f, 0.90f));
+	TakeoffBoard->SetMobility(EComponentMobility::Movable);
+	TakeoffBoard->SetVisibility(false);
+
+	SandPit = MakeBox(TEXT("SandPit"), FVector(0.0f, 0.0f, -2.0f),
+		FVector(450.0f, LaneWidthCm * 1.4f, 3.0f), FLinearColor(0.76f, 0.68f, 0.46f));
+	SandPit->SetMobility(EComponentMobility::Movable);
+	SandPit->SetVisibility(false);
+
 	// Blocks, one per lane, just behind the start line.
 	for (int32 Lane = 0; Lane < LaneCount; ++Lane)
 	{
@@ -181,6 +193,44 @@ void AWSSprintTrack::SetHurdles(int32 Count, float FirstMetres, float SpacingMet
 			}
 		}
 	}
+}
+
+void AWSSprintTrack::SetJumpPit(float BoardMetres, float PitLengthMetres)
+{
+	const bool bJumping = BoardMetres > 0.0f;
+	const float BoardX = BoardMetres * 100.0f;
+	if (TakeoffBoard)
+	{
+		TakeoffBoard->SetVisibility(bJumping);
+		if (bJumping)
+		{
+			const FVector Current = TakeoffBoard->GetRelativeLocation();
+			TakeoffBoard->SetRelativeLocation(FVector(BoardX, Current.Y, Current.Z));
+		}
+	}
+	if (SandPit)
+	{
+		SandPit->SetVisibility(bJumping);
+		if (bJumping)
+		{
+			// The pit starts AT the board, because that is where the tape
+			// starts: a mark is measured from the board to the nearest
+			// break in the sand.
+			const float HalfLength = PitLengthMetres * 50.0f;
+			const FVector Current = SandPit->GetRelativeLocation();
+			SandPit->SetRelativeLocation(
+				FVector(BoardX + HalfLength, Current.Y, Current.Z));
+			SandPit->SetRelativeScale3D(
+				FVector(HalfLength, LaneWidthCm * 1.4f, 3.0f) / 50.0f);
+		}
+	}
+}
+
+float AWSSprintTrack::GetBoardX() const
+{
+	return TakeoffBoard && TakeoffBoard->GetVisibleFlag()
+		? TakeoffBoard->GetRelativeLocation().X
+		: 0.0f;
 }
 
 int32 AWSSprintTrack::GetVisibleHurdleCount() const

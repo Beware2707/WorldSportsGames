@@ -159,6 +159,43 @@ public:
 				]
 			]
 
+			// --- The jump: board countdown, series, and TAKE OFF ---------
+			+ SOverlay::Slot()
+			.HAlign(HAlign_Center).VAlign(VAlign_Bottom)
+			.Padding(0.0f, 0.0f, 0.0f, 96.0f)
+			[
+				SNew(STextBlock).Font(Font(30, true))
+				.ColorAndOpacity(FLinearColor(1.0f, 0.86f, 0.35f))
+				.Visibility(this, &SWSSprintHudPanel::GetJumpVisibility)
+				.Text(this, &SWSSprintHudPanel::GetJumpText)
+			]
+			+ SOverlay::Slot()
+			.HAlign(HAlign_Left).VAlign(VAlign_Top)
+			.Padding(24.0f, 96.0f, 0.0f, 0.0f)
+			[
+				SNew(STextBlock).Font(Font(20))
+				.ColorAndOpacity(FLinearColor(0.9f, 0.9f, 0.9f))
+				.Visibility(this, &SWSSprintHudPanel::GetJumpVisibility)
+				.Text(this, &SWSSprintHudPanel::GetJumpSeriesText)
+			]
+			+ SOverlay::Slot()
+			.HAlign(HAlign_Right).VAlign(VAlign_Bottom)
+			.Padding(0.0f, 0.0f, 48.0f, 120.0f)
+			[
+				SNew(SBox)
+				.WidthOverride(300.0f).HeightOverride(160.0f)
+				.Visibility(this, &SWSSprintHudPanel::GetJumpButtonVisibility)
+				[
+					SNew(SButton)
+					.HAlign(HAlign_Center).VAlign(VAlign_Center)
+					.OnClicked(this, &SWSSprintHudPanel::OnTakeoff)
+					[
+						SNew(STextBlock).Font(Font(34, true))
+						.Text(LOCTEXT("TakeoffButton", "TAKE OFF"))
+					]
+				]
+			]
+
 			// --- The takeoff button, armed only near a barrier -----------
 			// A downward swipe is how the dip at the line is asked for, and
 			// it is fine for one action in a race. It is NOT fine for ten:
@@ -1046,6 +1083,72 @@ private:
 			GameModePtr->PlayerLean();
 		}
 		return FReply::Handled();
+	}
+
+	/** The board countdown: what a jumper is actually reading. */
+	FText GetJumpText() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		if (!GameModePtr || !GameModePtr->IsJumpEvent())
+		{
+			return FText::GetEmpty();
+		}
+		const float ToBoard = GameModePtr->GetMetresToBoard();
+		if (ToBoard > 12.0f)
+		{
+			return FText::FromString(FString::Printf(
+				TEXT("ATTEMPT %d   build your speed"), GameModePtr->GetJumpAttempt()));
+		}
+		if (ToBoard < 0.0f)
+		{
+			return LOCTEXT("PastBoard", "PAST THE BOARD");
+		}
+		// Metres, because the mark is measured in metres from the board and
+		// the takeoff is judged the same way.
+		return FText::FromString(FString::Printf(TEXT("BOARD  %.1f m"), ToBoard));
+	}
+
+	EVisibility GetJumpVisibility() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		return GameModePtr && GameModePtr->IsJumpEvent()
+			? EVisibility::HitTestInvisible : EVisibility::Collapsed;
+	}
+
+	EVisibility GetJumpButtonVisibility() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		// Armed for the whole approach: taking off too early is a legal
+		// decision that simply costs distance, so the button must let the
+		// player make it — and get it wrong.
+		return GameModePtr && GameModePtr->IsJumpEvent()
+			&& GameModePtr->GetPhase() == EWSEventPhase::Active
+			? EVisibility::Visible : EVisibility::Collapsed;
+	}
+
+	FReply OnTakeoff()
+	{
+		if (AWSSprintGameMode* GameModePtr = Mode())
+		{
+			GameModePtr->PlayerTakeoff();
+		}
+		return FReply::Handled();
+	}
+
+	/** The series so far, in metres, with fouls shown as fouls. */
+	FText GetJumpSeriesText() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		if (!GameModePtr || !GameModePtr->IsJumpEvent())
+		{
+			return FText::GetEmpty();
+		}
+		FString Text = GameModePtr->GetAttemptSummary();
+		if (GameModePtr->GetBestMark() > 0.0f)
+		{
+			Text += FString::Printf(TEXT("Best %.2f m"), GameModePtr->GetBestMark());
+		}
+		return FText::FromString(Text);
 	}
 
 	FText GetPaceText() const

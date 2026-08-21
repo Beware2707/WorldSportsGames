@@ -121,8 +121,27 @@ const FWSPaceState& AWSSprintRunner::GetPaceState() const
 	return PaceSimulation.IsValid() ? PaceSimulation->GetState() : Empty;
 }
 
+void AWSSprintRunner::DriveVisual(int32 InLaneIndex, const FString& InDisplayName,
+	double DistanceMetres, double SpeedMetresPerSecond, bool bAirborne)
+{
+	bFieldEvent = true;
+	bIsPlayer = true;
+	LaneIndex = InLaneIndex;
+	DisplayName = InDisplayName;
+	FieldState.Distance = DistanceMetres;
+	FieldState.Speed = SpeedMetresPerSecond;
+	FieldState.bReleased = true;
+	FieldState.bFinished = bAirborne;
+	ApplyKitColour();
+	UpdateVisual(FieldState.RaceTime);
+}
+
 const FWSRaceState& AWSSprintRunner::GetState() const
 {
+	if (bFieldEvent)
+	{
+		return FieldState;
+	}
 	if (ScriptedFinishSeconds > 0.0)
 	{
 		return ScriptedState;
@@ -136,6 +155,13 @@ const FWSRaceState& AWSSprintRunner::GetState() const
 
 FWSRaceOutcome AWSSprintRunner::GetOutcome() const
 {
+	if (bFieldEvent)
+	{
+		// A field event has no race outcome: its result is a MARK, and the
+		// game mode owns it. Reaching for a simulation that was never
+		// created here is what crashed the first jump.
+		return FWSRaceOutcome();
+	}
 	if (ScriptedFinishSeconds > 0.0)
 	{
 		return ScriptedOutcome;
@@ -158,6 +184,10 @@ FWSRaceOutcome AWSSprintRunner::GetOutcome() const
 
 double AWSSprintRunner::GetSplitSegmentMetres() const
 {
+	if (bFieldEvent)
+	{
+		return 0.0; // a jump has no splits
+	}
 	if (PaceSimulation.IsValid())
 	{
 		const FWSPaceEventSpec& Spec = PaceSimulation->GetEvent();
@@ -172,6 +202,10 @@ double AWSSprintRunner::GetSplitSegmentMetres() const
 
 double AWSSprintRunner::GetRaceDistance() const
 {
+	if (bFieldEvent)
+	{
+		return FieldState.Distance;
+	}
 	if (PaceSimulation.IsValid())
 	{
 		return PaceSimulation->GetRaceDistance();
@@ -212,6 +246,10 @@ void AWSSprintRunner::SetScriptedFinish(double FinishTimeSeconds)
 
 void AWSSprintRunner::AdvanceTo(double RaceTime)
 {
+	if (bFieldEvent)
+	{
+		return; // driven from outside; there is nothing here to step
+	}
 	if (ScriptedFinishSeconds > 0.0)
 	{
 		// Smooth acceleration to the server's time: the finish is exact, the

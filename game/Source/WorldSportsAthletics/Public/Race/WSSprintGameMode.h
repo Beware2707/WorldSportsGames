@@ -4,6 +4,7 @@
 #include "Framework/WSEventGameMode.h"
 #include "Online/WSOnlineSubsystem.h"
 #include "Race/WSSprintAudio.h"
+#include "Simulation/WSJumpSimulation.h"
 #include "Simulation/WSPaceSimulation.h"
 #include "Simulation/WSSprintEvents.h"
 #include "Simulation/WSSprintSimulation.h"
@@ -105,6 +106,41 @@ public:
 	 * blocks, no cadence band, effort and a kick instead. */
 	UFUNCTION(BlueprintPure, Category = "Race")
 	bool IsPaceEvent() const;
+
+	/** True for a FIELD event: a runway, a board, and a mark in metres
+	 * instead of a race against a field. */
+	UFUNCTION(BlueprintPure, Category = "Race")
+	bool IsJumpEvent() const;
+
+	const FWSJumpEventSpec& CurrentJumpEvent() const;
+
+	// -- The jump, as the HUD sees it ------------------------------------
+
+	/** The attempt being taken, 1-based, or 0 outside a jumping event.
+	 * Clamped to the series length: once the last one is done there is no
+	 * fourth attempt to announce. */
+	UFUNCTION(BlueprintPure, Category = "Race")
+	int32 GetJumpAttempt() const;
+
+	/** How many attempts have actually been taken. */
+	UFUNCTION(BlueprintPure, Category = "Race")
+	int32 GetAttemptsTaken() const { return Attempts.Num(); }
+
+	/** Metres to the board; negative once past it. */
+	UFUNCTION(BlueprintPure, Category = "Race")
+	float GetMetresToBoard() const;
+
+	/** The best legal mark so far, in metres; 0 if there is none yet. */
+	UFUNCTION(BlueprintPure, Category = "Race")
+	float GetBestMark() const { return static_cast<float>(BestMark); }
+
+	/** What each attempt scored, in order. A foul reads as a foul rather
+	 * than as a zero, because a foul is not a short jump. */
+	FString GetAttemptSummary() const;
+
+	/** Take off. The one decision the whole event turns on. */
+	UFUNCTION(BlueprintCallable, Category = "Race")
+	void PlayerTakeoff();
 
 	/** The selected event's code, distance and split count, whichever kind
 	 * it is. Everything shared — the track, the camera, the leaderboard
@@ -384,6 +420,21 @@ private:
 	TArray<FWSPaceInputEvent> PlayerPaceTrace;
 	/** Effort the player is currently asking for in a paced race. */
 	double PlayerEffort = 0.0;
+
+	// -- Field events -----------------------------------------------------
+	TSharedPtr<FWSJumpSimulation> JumpSim;
+	TArray<FWSJumpInputEvent> PlayerJumpTrace;
+	/** Marks so far. A foul is recorded as a foul, not as zero metres. */
+	TArray<FWSJumpOutcome> Attempts;
+	int32 AttemptIndex = 0;
+	double BestMark = 0.0;
+	/** Seconds left of the pause between attempts. */
+	float AttemptRestSeconds = 0.0f;
+
+	void SubmitJumpResult();
+	void StartJumpAttempt();
+	void FinishJumpAttempt();
+	void TickJump(float DeltaSeconds);
 	/** True while the current race belongs to a tournament round: its result
 	 * goes to the bracket endpoint, which scores it against the field the
 	 * server stored BEFORE the race. */

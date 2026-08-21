@@ -66,6 +66,18 @@ public:
 	 */
 	void SetHurdles(int32 Count, float FirstMetres, float SpacingMetres);
 
+	/**
+	 * Dress the straight as a jumping runway: a takeoff board at the given
+	 * distance and a sand pit beyond it. Passing 0 puts it back to a track.
+	 *
+	 * The board is the one thing in a long jump the player is aiming at, so
+	 * it has to be visible from the runway rather than implied by a number.
+	 */
+	void SetJumpPit(float BoardMetres, float PitLengthMetres);
+
+	/** Where the board is, in cm; 0 when this is not a jumping event. */
+	float GetBoardX() const;
+
 	/** How many barriers are currently standing, for tests. */
 	int32 GetVisibleHurdleCount() const;
 
@@ -108,4 +120,10 @@ private:
 	TArray<TObjectPtr<UStaticMeshComponent>> Hurdles;
 
 	int32 StandingHurdles = 0;
+
+	UPROPERTY()
+	TObjectPtr<UStaticMeshComponent> TakeoffBoard;
+
+	UPROPERTY()
+	TObjectPtr<UStaticMeshComponent> SandPit;
 };

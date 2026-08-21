@@ -50,6 +50,20 @@ public:
 
 	bool IsPaceEvent() const { return PaceSimulation.IsValid(); }
 
+	/**
+	 * Drive the visual directly, for a FIELD event.
+	 *
+	 * A jump is not a race: one athlete goes down a runway and the result
+	 * is a distance, so there is no per-runner simulation to step here and
+	 * no field to keep in step with. The game mode owns the jump and tells
+	 * this actor where the athlete is. Nothing about a time or a mark comes
+	 * from here — it is presentation only.
+	 */
+	void DriveVisual(int32 InLaneIndex, const FString& InDisplayName,
+		double DistanceMetres, double SpeedMetresPerSecond, bool bAirborne);
+
+	bool IsFieldEvent() const { return bFieldEvent; }
+
 	/** Live pace state, for the HUD's effort and energy readouts. Only
 	 * meaningful when IsPaceEvent(). */
 	const FWSPaceState& GetPaceState() const;
@@ -71,7 +85,7 @@ public:
 	/** Metres to the next barrier, or -1 when there is none ahead. */
 	double MetresToNextHurdle() const
 	{
-		if (!Simulation.IsValid())
+		if (bFieldEvent || !Simulation.IsValid())
 		{
 			return -1.0;
 		}
@@ -82,7 +96,8 @@ public:
 	/** Barriers this run has hit badly. Feedback only, never a claim. */
 	int32 GetHurdlesClattered() const
 	{
-		return Simulation.IsValid() ? Simulation->GetHurdlesClattered() : 0;
+		return !bFieldEvent && Simulation.IsValid()
+			? Simulation->GetHurdlesClattered() : 0;
 	}
 
 	/** Metres between this event's split marks. */
@@ -100,7 +115,8 @@ public:
 	/** Only sprints have a cadence band; middle distance has none. */
 	double TargetCadenceAt(double Distance) const
 	{
-		return Simulation.IsValid() ? Simulation->TargetCadenceAt(Distance) : 0.0;
+		return !bFieldEvent && Simulation.IsValid()
+			? Simulation->TargetCadenceAt(Distance) : 0.0;
 	}
 
 	bool IsPlayer() const { return bIsPlayer; }
@@ -122,6 +138,11 @@ private:
 	/** Middle-distance state projected into the shared race state, so the
 	 * HUD, camera and standings have one shape to read. */
 	FWSRaceState PaceProjectedState;
+
+	/** Field events drive the visual from outside; there is no simulation
+	 * on this actor to read a state from. */
+	bool bFieldEvent = false;
+	FWSRaceState FieldState;
 
 	UPROPERTY()
 	TObjectPtr<UStaticMeshComponent> Body;

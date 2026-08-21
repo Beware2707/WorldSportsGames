@@ -6,6 +6,7 @@
 #include "Race/WSSprintGameMode.h"
 #include "Race/WSSprintRunner.h"
 #include "Race/WSSprintTrack.h"
+#include "Simulation/WSJumpSimulation.h"
 #include "Simulation/WSPaceSimulation.h"
 #include "Simulation/WSSprintEvents.h"
 #include "Tests/AutomationCommon.h"
@@ -387,6 +388,81 @@ bool FWSPaceRaceFlowTest::RunTest(const FString&)
 			TestEqual(FString::Printf(TEXT("%s: same distance for all"), *Spec.Code),
 				Runner->GetRaceDistance(), Spec.DistanceMetres);
 		}
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSJumpFlowTest,
+	"WorldSports.Race.LongJumpPlaysAsASeries",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+bool FWSJumpFlowTest::RunTest(const FString&)
+{
+	// A field event is not a race, and this is the check that the app knows
+	// it: one athlete on a runway, three attempts, a mark in metres, and a
+	// board that ends an attempt whether it is hit or overrun.
+	for (const FWSJumpEventSpec& Spec : WSJumpEvents::All())
+	{
+		FRaceHarness Harness(/*bStartRace=*/false);
+		if (!TestNotNull(TEXT("game mode spawned"), Harness.GameMode))
+		{
+			return false;
+		}
+		Harness.GameMode->SelectEvent(Spec.Code);
+		TestTrue(FString::Printf(TEXT("%s is a field event"), *Spec.Code),
+			Harness.GameMode->IsJumpEvent());
+		Harness.GameMode->StartQuickPlay();
+
+		// The runway is dressed: a board to aim at and a pit to land in.
+		AWSSprintTrack* TrackActor = Harness.GameMode->GetTrack();
+		if (TestNotNull(TEXT("track spawned"), TrackActor))
+		{
+			TestEqual(FString::Printf(TEXT("%s: the board is at the runway's end"),
+					*Spec.Code),
+				TrackActor->GetBoardX(),
+				static_cast<float>(Spec.RunwayMetres) * 100.0f, /*Tolerance=*/1.0f);
+			TestEqual(FString::Printf(TEXT("%s: no barriers on a runway"), *Spec.Code),
+				TrackActor->GetVisibleHurdleCount(), 0);
+		}
+
+		// Run the whole series: tap the approach, take off near the board.
+		double NextTapAt = 0.0;
+		Harness.RunFor(60.0, 1.0 / 60.0, [&](double Clock)
+		{
+			if (Clock < 0.0)
+			{
+				return;
+			}
+			if (Clock >= NextTapAt)
+			{
+				Harness.GameMode->PlayerPress();
+				NextTapAt = Clock + 1.0 / 4.6;
+			}
+			// Leave the ground while there is still board left.
+			if (Harness.GameMode->GetMetresToBoard() <= 0.35f &&
+				Harness.GameMode->GetMetresToBoard() > 0.0f)
+			{
+				Harness.GameMode->PlayerTakeoff();
+			}
+		});
+
+		TestEqual(FString::Printf(TEXT("%s: the whole series was taken"), *Spec.Code),
+			Harness.GameMode->GetAttemptsTaken(), Spec.Attempts);
+		// And the HUD never announces an attempt that does not exist.
+		TestEqual(FString::Printf(TEXT("%s: no fourth attempt announced"), *Spec.Code),
+			Harness.GameMode->GetJumpAttempt(), Spec.Attempts);
+		TestTrue(FString::Printf(TEXT("%s: a mark was set (best %.2f m)"),
+				*Spec.Code, Harness.GameMode->GetBestMark()),
+			Harness.GameMode->GetBestMark() >= Spec.MinPlausibleMetres);
+		TestTrue(FString::Printf(TEXT("%s: the mark is inside the plausible band"),
+				*Spec.Code),
+			Harness.GameMode->GetBestMark() <= Spec.MaxPlausibleMetres);
+		TestTrue(FString::Printf(TEXT("%s: reached the result"), *Spec.Code),
+			static_cast<int32>(Harness.GameMode->GetPhase()) >=
+				static_cast<int32>(EWSEventPhase::Result));
+
+		AddInfo(FString::Printf(TEXT("SERIES %s best %.2f m over %d attempts"),
+			*Spec.Code, Harness.GameMode->GetBestMark(),
+			Harness.GameMode->GetAttemptsTaken()));
 	}
 	return true;
 }
