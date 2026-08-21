@@ -264,6 +264,29 @@ bool FWSRaceEventSelectionTest::RunTest(const FString&)
 				*Spec.Code),
 			Player->GetSplitSegmentMetres(), Spec.DistanceMetres / Spec.SplitCount);
 
+		// Barriers the simulation judges must be barriers the player can
+		// SEE. The first hurdles race on device had ten of them in the
+		// simulation and none on the track, leaving a numeric prompt as the
+		// only cue that anything was in the way.
+		if (TrackActor)
+		{
+			TestEqual(FString::Printf(TEXT("%s: standing barriers"), *Spec.Code),
+				TrackActor->GetVisibleHurdleCount(), Spec.HurdleCount);
+			const TArray<float> Barriers = TrackActor->GetVisibleHurdlePositions();
+			for (int32 Index = 0; Index < Barriers.Num(); ++Index)
+			{
+				// A centimetre of tolerance: the track places barriers in
+				// float and the simulation judges them in double, and the
+				// difference is fractions of a micron. Demanding exact
+				// equality tests the arithmetic, not the game.
+				TestEqual(FString::Printf(TEXT("%s: barrier %d stands where the ")
+						TEXT("simulation judges it"), *Spec.Code, Index),
+					Barriers[Index],
+					static_cast<float>(Spec.HurdleMetres(Index)) * 100.0f,
+					/*Tolerance=*/1.0f);
+			}
+		}
+
 		// The whole field ran the same distance — including the AI, which
 		// runs this simulation rather than being handed a finish time.
 		TestEqual(FString::Printf(TEXT("%s: full field"), *Spec.Code),

@@ -46,6 +46,8 @@ public:
 	static constexpr float ApronCm = 900.0f;       // run-out after the line
 	/** How many distance markers exist; the race uses as many as it needs. */
 	static constexpr int32 MaxDistanceMarks = 10;
+	/** Barriers per lane, for the hurdles events. */
+	static constexpr int32 MaxHurdles = 10;
 
 	/**
 	 * Move the finish line and the distance markers to suit this event.
@@ -53,6 +55,22 @@ public:
 	 * infield is exactly where their splits were taken.
 	 */
 	void SetRaceDistance(float DistanceMetres, int32 SplitCount);
+
+	/**
+	 * Stand the barriers up for a hurdles race, or take them all away for a
+	 * flat one.
+	 *
+	 * A hurdles race with no visible hurdles is not a hurdles race: the
+	 * simulation was judging takeoffs against barriers the player could not
+	 * see, leaving a numeric prompt as the only cue that anything was there.
+	 */
+	void SetHurdles(int32 Count, float FirstMetres, float SpacingMetres);
+
+	/** How many barriers are currently standing, for tests. */
+	int32 GetVisibleHurdleCount() const;
+
+	/** Where each standing barrier is, in cm, nearest first. */
+	TArray<float> GetVisibleHurdlePositions() const;
 
 	/** Where the finish line currently sits, in cm. Test-visible so the
 	 * track's length can be asserted rather than eyeballed. */
@@ -84,4 +102,10 @@ private:
 
 	UPROPERTY()
 	TArray<TObjectPtr<UStaticMeshComponent>> DistanceMarks;
+
+	/** MaxHurdles barriers per lane, laid out row-major (barrier, lane). */
+	UPROPERTY()
+	TArray<TObjectPtr<UStaticMeshComponent>> Hurdles;
+
+	int32 StandingHurdles = 0;
 };

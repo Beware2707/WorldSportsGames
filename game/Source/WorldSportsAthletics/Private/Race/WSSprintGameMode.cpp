@@ -810,6 +810,13 @@ void AWSSprintGameMode::StartRace()
 	{
 		Track->SetRaceDistance(
 			static_cast<float>(SelectedDistanceMetres()), SelectedSplitCount());
+		// Barriers belong to the event, so a flat race takes them away and a
+		// hurdles race stands exactly its own up.
+		const bool bHurdles = !IsPaceEvent() && CurrentEvent().HasHurdles();
+		Track->SetHurdles(
+			bHurdles ? CurrentEvent().HurdleCount : 0,
+			bHurdles ? static_cast<float>(CurrentEvent().FirstHurdleMetres) : 0.0f,
+			bHurdles ? static_cast<float>(CurrentEvent().HurdleSpacingMetres) : 0.0f);
 	}
 
 	for (AWSSprintRunner* Runner : Runners)

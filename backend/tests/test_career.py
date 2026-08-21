@@ -417,3 +417,103 @@ async def test_saves_are_per_user(client, headers):
     other_headers = await _login(client, RIVAL)
     other = (await client.get("/api/v1/career/save", headers=other_headers)).json()
     assert other["payload"] == {}, "one user must never see another's save"
+
+
+# ---- distance events: higher is better -----------------------------------
+#
+# Every event until the long jump was a time, where LOWER wins. The ceiling
+# check, the leaderboard aggregate, the personal-best comparison and the
+# tournament ranking all branch on lower_is_better, and none of those
+# branches had ever been executed. These tests execute them.
+
+
+async def test_long_jump_ceiling_rejects_a_mark_that_is_too_FAR(
+    client, headers, athlete, db_sessionmaker
+):
+    event = EVENTS["jump-long"]
+    ceiling = attribute_ceiling(event, {k: 40.0 for k in event.governing_attributes})
+    r = await client.post(
+        "/api/v1/career/results",
+        json={
+            "event": "jump-long",
+            "value_num": ceiling + 1.5,  # further than these attributes allow
+            "wind": 0.4,
+        },
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["accepted"] is False
+    assert "ceiling" in body["rejection_reason"]
+
+    # Stored for audit even though it counts for nothing.
+    async with db_sessionmaker() as session:
+        rows = (await session.execute(select(GameResult))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].event_code == "jump-long"
+    assert rows[0].value_kind == "distance"
+    assert rows[0].is_valid is False
+
+
+async def test_long_jump_accepts_a_legal_mark_and_takes_the_FARTHEST_as_best(
+    client, headers, athlete
+):
+    event = EVENTS["jump-long"]
+    ceiling = attribute_ceiling(event, {k: 40.0 for k in event.governing_attributes})
+
+    first = await client.post(
+        "/api/v1/career/results",
+        json={"event": "jump-long", "value_num": round(ceiling - 0.60, 2), "wind": 0.2},
+        headers=headers,
+    )
+    assert first.status_code == 201, first.text
+    assert first.json()["accepted"] is True
+    assert first.json()["is_personal_best"] is True
+
+    # A SHORTER jump is not an improvement, however much later it happened.
+    shorter = await client.post(
+        "/api/v1/career/results",
+        json={"event": "jump-long", "value_num": round(ceiling - 0.90, 2), "wind": 0.2},
+        headers=headers,
+    )
+    assert shorter.json()["accepted"] is True
+    assert shorter.json()["is_personal_best"] is False
+
+    # A longer one is.
+    longer_value = round(ceiling - 0.30, 2)
+    longer = await client.post(
+        "/api/v1/career/results",
+        json={"event": "jump-long", "value_num": longer_value, "wind": 0.2},
+        headers=headers,
+    )
+    assert longer.json()["accepted"] is True
+    assert longer.json()["is_personal_best"] is True
+
+    # The leaderboard ranks the FARTHEST, not the smallest number.
+    board = (
+        await client.get(
+            "/api/v1/career/leaderboard",
+            params={"event": "jump-long", "scope": "global", "period": "all_time"},
+        )
+    ).json()
+    assert board["rows"], board
+    assert board["rows"][0]["value_text"] == f"{longer_value:.2f}"
+
+
+async def test_long_jump_marks_keep_the_centimetre(client, headers, athlete):
+    # A jump of 7.90 is "7.90", never "7.9": the trailing zero is the
+    # difference between two marks a centimetre apart.
+    from app.services.career import format_value
+
+    assert format_value(EVENTS["jump-long"], 7.90) == "7.90"
+    assert format_value(EVENTS["jump-long"], 8.0) == "8.00"
+
+
+async def test_wind_limit_still_applies_to_the_long_jump(client, headers, athlete):
+    r = await client.post(
+        "/api/v1/career/results",
+        json={"event": "jump-long", "value_num": 4.20, "wind": 2.6},
+        headers=headers,
+    )
+    assert r.json()["accepted"] is False
+    assert "wind" in r.json()["rejection_reason"]

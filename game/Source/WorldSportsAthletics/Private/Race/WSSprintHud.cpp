@@ -159,6 +159,31 @@ public:
 				]
 			]
 
+			// --- The takeoff button, armed only near a barrier -----------
+			// A downward swipe is how the dip at the line is asked for, and
+			// it is fine for one action in a race. It is NOT fine for ten:
+			// a swipe is slow, and its own first touch also lands as a
+			// cadence tap, so hurdling by swipe fought the rhythm the same
+			// race was judging. A button that only exists when a barrier is
+			// close is unmissable and costs one thumb press.
+			+ SOverlay::Slot()
+			.HAlign(HAlign_Right).VAlign(VAlign_Bottom)
+			.Padding(0.0f, 0.0f, 48.0f, 120.0f)
+			[
+				SNew(SBox)
+				.WidthOverride(280.0f).HeightOverride(150.0f)
+				.Visibility(this, &SWSSprintHudPanel::GetHurdleButtonVisibility)
+				[
+					SNew(SButton)
+					.HAlign(HAlign_Center).VAlign(VAlign_Center)
+					.OnClicked(this, &SWSSprintHudPanel::OnHurdle)
+					[
+						SNew(STextBlock).Font(Font(34, true))
+						.Text(LOCTEXT("HurdleButton", "HURDLE"))
+					]
+				]
+			]
+
 			// --- The hurdler's takeoff prompt, above the cadence band ----
 			+ SOverlay::Slot()
 			.HAlign(HAlign_Center).VAlign(VAlign_Bottom)
@@ -263,12 +288,16 @@ public:
 						]
 						+ SHorizontalBox::Slot().AutoWidth()
 						[
-							SNew(SBox).WidthOverride(208.0f).HeightOverride(72.0f)
+							// Wide enough for the longest event name in the
+							// table: "110m Hurdles" ran under the ▶ button
+							// at the width the 100m needed.
+							SNew(SBox).WidthOverride(300.0f).HeightOverride(72.0f)
 							.Padding(FMargin(0.0f, 6.0f))
 							.HAlign(HAlign_Center).VAlign(VAlign_Center)
 							[
-								SNew(STextBlock).Font(Font(26, true))
+								SNew(STextBlock).Font(Font(22, true))
 								.ColorAndOpacity(FLinearColor::White)
+								.Justification(ETextJustify::Center)
 								.Text(this, &SWSSprintHudPanel::GetEventText)
 							]
 						]
@@ -998,6 +1027,25 @@ private:
 	{
 		return GetHurdleText().IsEmpty() ? EVisibility::Collapsed
 			: EVisibility::HitTestInvisible;
+	}
+
+	/** The button itself has to accept the touch, so it is Visible rather
+	 * than HitTestInvisible like the countdown text above it. */
+	EVisibility GetHurdleButtonVisibility() const
+	{
+		return GetHurdleText().IsEmpty() ? EVisibility::Collapsed
+			: EVisibility::Visible;
+	}
+
+	FReply OnHurdle()
+	{
+		if (AWSSprintGameMode* GameModePtr = Mode())
+		{
+			// PlayerLean is the one contextual action: with a barrier armed
+			// it is the takeoff, otherwise the dip at the line.
+			GameModePtr->PlayerLean();
+		}
+		return FReply::Handled();
 	}
 
 	FText GetPaceText() const

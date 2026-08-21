@@ -65,6 +65,24 @@ AWSSprintTrack::AWSSprintTrack()
 		DistanceMarks.Add(Box);
 	}
 
+	// Barriers: one per lane per hurdle, hidden until a hurdles race asks
+	// for them. Built here rather than spawned per race because components
+	// can only be created in a constructor.
+	for (int32 Barrier = 0; Barrier < MaxHurdles; ++Barrier)
+	{
+		for (int32 Lane = 0; Lane < LaneCount; ++Lane)
+		{
+			UStaticMeshComponent* Box = MakeBox(
+				*FString::Printf(TEXT("Hurdle%d_%d"), Barrier, Lane),
+				FVector(0.0f, LaneCenterY(Lane), 53.0f),
+				FVector(3.0f, LaneWidthCm * 0.42f, 53.0f),
+				FLinearColor(0.90f, 0.90f, 0.93f));
+			Box->SetMobility(EComponentMobility::Movable);
+			Box->SetVisibility(false);
+			Hurdles.Add(Box);
+		}
+	}
+
 	// Blocks, one per lane, just behind the start line.
 	for (int32 Lane = 0; Lane < LaneCount; ++Lane)
 	{
@@ -138,6 +156,50 @@ void AWSSprintTrack::SetRaceDistance(float DistanceMetres, int32 SplitCount)
 				FVector(Segment * (Index + 1), Current.Y, Current.Z));
 		}
 	}
+}
+
+void AWSSprintTrack::SetHurdles(int32 Count, float FirstMetres, float SpacingMetres)
+{
+	StandingHurdles = FMath::Clamp(Count, 0, MaxHurdles);
+	for (int32 Barrier = 0; Barrier < MaxHurdles; ++Barrier)
+	{
+		const bool bStanding = Barrier < StandingHurdles;
+		const float X = (FirstMetres + SpacingMetres * Barrier) * 100.0f;
+		for (int32 Lane = 0; Lane < LaneCount; ++Lane)
+		{
+			const int32 Index = Barrier * LaneCount + Lane;
+			if (!Hurdles.IsValidIndex(Index) || !Hurdles[Index])
+			{
+				continue;
+			}
+			UStaticMeshComponent* Box = Hurdles[Index];
+			Box->SetVisibility(bStanding);
+			if (bStanding)
+			{
+				const FVector Current = Box->GetRelativeLocation();
+				Box->SetRelativeLocation(FVector(X, Current.Y, Current.Z));
+			}
+		}
+	}
+}
+
+int32 AWSSprintTrack::GetVisibleHurdleCount() const
+{
+	return StandingHurdles;
+}
+
+TArray<float> AWSSprintTrack::GetVisibleHurdlePositions() const
+{
+	TArray<float> Positions;
+	for (int32 Barrier = 0; Barrier < StandingHurdles; ++Barrier)
+	{
+		const int32 Index = Barrier * LaneCount;
+		if (Hurdles.IsValidIndex(Index) && Hurdles[Index])
+		{
+			Positions.Add(Hurdles[Index]->GetRelativeLocation().X);
+		}
+	}
+	return Positions;
 }
 
 float AWSSprintTrack::GetFinishLineX() const

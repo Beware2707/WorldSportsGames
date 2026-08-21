@@ -251,7 +251,51 @@ modelled.
 the live backend. NOT yet playable** — there is no game mode or HUD for the
 pace input model, so the vertical slice is not closed.
 
-### 6.4 Deliberately still open
+### 6.4 Hurdles (110m / 400m) — a skill layered on the sprint kind
+
+NOT a new kind, and the distinction matters: a hurdles race keeps the
+blocks, the reaction, the wind and the cadence band. The barriers are three
+numbers in the event row (count, first barrier, spacing), and the takeoff is
+judged in **metres** rather than seconds — the barrier stands at a place on
+the track, so a slower athlete legitimately leaves the ground later on the
+race clock.
+
+Calibration found that **barriers alone cannot make a hurdles race**. With
+only a per-barrier speed penalty the athlete re-accelerated between them and
+the whole field finished under the server's ceiling — the 110m hurdles ran
+11.05 against a 12.90 limit. Two real things were missing:
+
+1. **A hurdler cannot run at flat-sprint speed.** The stride pattern between
+   barriers is fixed at three strides, which caps the top end however fast
+   the athlete is on the flat.
+2. **Technique must govern the cost of a *clean* clearance**, not only the
+   width of the timing window. Clearing low and landing running is
+   technique: a novice loses ~4% per barrier where a specialist loses ~0.4%.
+   One factor for everyone left no room between a beginner and a champion.
+
+The player gets one contextual action — with a barrier within 7m it is the
+takeoff, otherwise the dip at the line. A test asserts the barriers are not
+scenery: running into all ten costs ~1s against clearing every one.
+
+### 6.5 Jumps — the first event measured in metres
+
+`jump-long` is on the server. It is the first event where **higher is
+better**, and nothing about that needed special-casing: the ceiling check,
+the leaderboard aggregate, the personal-best comparison and the tournament
+ranking all already branched on `lower_is_better` — those branches simply
+had never been executed by any event. They are now covered by tests.
+
+One real defect surfaced: `format_value` fell through to `%g` for a
+distance, printing a jump of 8.90 m as "8.9". Athletics reports marks to the
+centimetre and keeps the trailing zero; the difference is two marks a
+centimetre apart reading as the same number.
+
+**Client side is not built yet.** A jump needs an approach run, a takeoff
+board with a foul line, and a flight — a genuinely different input model
+from both the sprint and the paced events, and a result in metres rather
+than seconds.
+
+### 6.6 Deliberately still open
 
 - **The 200m and 400m are run on a straight track.** Bends need track
   geometry, lane-stagger and a camera that follows a curve; the simulation is

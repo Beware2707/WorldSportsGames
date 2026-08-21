@@ -144,6 +144,31 @@ EVENTS: dict[str, CareerEvent] = {
         min_split_seconds=4.2,
         distance_m=400.0,
     ),
+    # --- Jumps -----------------------------------------------------------
+    # The first event measured in METRES rather than seconds, and the first
+    # where higher is better. Nothing about that is special-cased: the
+    # ceiling check, the leaderboard aggregate, the personal-best comparison
+    # and the tournament ranking all already read lower_is_better.
+    #
+    # No reaction: a jumper starts their approach when they choose to, so
+    # there is no gun to react to and no false start to commit. Wind IS
+    # recorded and the +2.0 m/s limit applies, exactly as in the sprints.
+    "jump-long": CareerEvent(
+        code="jump-long",
+        name="Long Jump",
+        value_kind="distance",
+        lower_is_better=False,
+        min_plausible=1.00,
+        max_plausible=9.00,          # the world record is 8.95
+        governing_attributes=("acceleration", "max_speed",
+                              "stride_efficiency", "technique"),
+        ceiling_at_zero=3.20,        # a complete novice
+        ceiling_at_hundred=8.85,
+        splits_expected=0,           # a jump has no splits
+        requires_reaction=False,
+        unit="m",
+        distance_m=0.0,              # not distance COVERED in a race
+    ),
     # --- Middle distance -------------------------------------------------
     # A different KIND of event, not a longer sprint. There are no blocks and
     # so no reaction to measure (requires_reaction=False), and no wind is
@@ -324,6 +349,11 @@ def format_value(event: CareerEvent, value: float) -> str:
             return f"{value:.2f}"
         minutes, seconds = divmod(value, 60)
         return f"{int(minutes)}:{seconds:05.2f}"
+    if event.value_kind == "distance":
+        # Athletics reports marks to the centimetre and keeps the trailing
+        # zero: a jump of 8.90 is "8.90", never "8.9". "%g" dropped it,
+        # which reads as a different (shorter) jump than the one measured.
+        return f"{value:.2f}"
     return f"{value:g}"
 
 
