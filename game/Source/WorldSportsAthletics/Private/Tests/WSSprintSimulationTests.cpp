@@ -1,4 +1,5 @@
 #include "Misc/AutomationTest.h"
+#include "Tests/WSTestAthlete.h"
 #include "Simulation/WSSprintDifficulty.h"
 #include "Simulation/WSSprintEvents.h"
 #include "Simulation/WSSprintSimulation.h"
@@ -7,22 +8,6 @@
 
 namespace
 {
-FWSSprintAttributes UniformAttributes(float Level)
-{
-	FWSSprintAttributes Attributes;
-	Attributes.Reaction = Level;
-	Attributes.Acceleration = Level;
-	Attributes.MaxSpeed = Level;
-	Attributes.StrideEfficiency = Level;
-	Attributes.Stamina = Level;
-	// Recovery too, or the 400m's governing mean sits below the level being
-	// asserted and every margin on that event is measured against a ceiling
-	// the athlete was never actually racing to.
-	Attributes.Recovery = Level;
-	Attributes.Technique = Level;
-	return Attributes;
-}
-
 /** The server's exact ceiling formula (backend/app/services/career.py). */
 double ServerCeiling(const FWSSprintEventSpec& Spec, double MeanAttr)
 {
@@ -59,7 +44,7 @@ bool FWSSprintDeterminismTest::RunTest(const FString&)
 	// Same attributes + seed + input trace MUST reproduce the identical
 	// race. Server-side replay validation and the finish replay depend on
 	// this being exact, not approximate.
-	const FWSSprintAttributes Attributes = UniformAttributes(55.0f);
+	const FWSSprintAttributes Attributes = WSTestAthlete::Uniform(55.0f);
 	const TArray<FWSSprintInputEvent> Trace =
 		FWSSprintSimulation::GenerateAITrace(Attributes, 42u, 42u, 180.0, 25.0, 0.7);
 
@@ -105,7 +90,7 @@ bool FWSSprintCeilingCalibrationTest::RunTest(const FString&)
 		const double NearBand = 1.2 * (Spec.DistanceMetres / 100.0);
 		for (const float Level : {0.0f, 25.0f, 40.0f, 55.0f, 70.0f, 85.0f, 100.0f})
 		{
-			const FWSSprintAttributes Attributes = UniformAttributes(Level);
+			const FWSSprintAttributes Attributes = WSTestAthlete::Uniform(Level);
 			const double Ceiling = ServerCeiling(Spec, Level);
 
 			double WorstMargin = TNumericLimits<double>::Max();
@@ -259,7 +244,7 @@ bool FWSHurdleTimingTest::RunTest(const FString&)
 		{
 			continue;
 		}
-		const FWSSprintAttributes Attributes = UniformAttributes(65.0f);
+		const FWSSprintAttributes Attributes = WSTestAthlete::Uniform(65.0f);
 		for (const uint32 Seed : {4u, 88u, 1212u})
 		{
 			// Judged: the AI at full consistency takes off for every barrier.
@@ -310,7 +295,7 @@ bool FWSSprintSkillDecidesTest::RunTest(const FString&)
 {
 	// Identical athletes, identical seed: the better rhythm must win by a
 	// meaningful margin. "Attributes raise the ceiling; execution decides."
-	const FWSSprintAttributes Attributes = UniformAttributes(50.0f);
+	const FWSSprintAttributes Attributes = WSTestAthlete::Uniform(50.0f);
 	const FWSRaceOutcome Sharp = FWSSprintSimulation::RunTrace(Attributes, 77u,
 		FWSSprintSimulation::GenerateAITrace(Attributes, 77u, 77u, 150.0, 0.0, 0.95));
 	const FWSRaceOutcome Sloppy = FWSSprintSimulation::RunTrace(Attributes, 77u,
@@ -324,11 +309,11 @@ bool FWSSprintSkillDecidesTest::RunTest(const FString&)
 	// And a World Class athlete played terribly loses to a Regional athlete
 	// played well — the anti-pay-to-win constraint, executable.
 	const FWSRaceOutcome EliteBadly = FWSSprintSimulation::RunTrace(
-		UniformAttributes(85.0f), 77u,
-		FWSSprintSimulation::GenerateAITrace(UniformAttributes(85.0f), 77u, 77u, 150.0, 0.0, 0.05));
+		WSTestAthlete::Uniform(85.0f), 77u,
+		FWSSprintSimulation::GenerateAITrace(WSTestAthlete::Uniform(85.0f), 77u, 77u, 150.0, 0.0, 0.05));
 	const FWSRaceOutcome RegionalWell = FWSSprintSimulation::RunTrace(
-		UniformAttributes(45.0f), 77u,
-		FWSSprintSimulation::GenerateAITrace(UniformAttributes(45.0f), 77u, 77u, 150.0, 0.0, 0.98));
+		WSTestAthlete::Uniform(45.0f), 77u,
+		FWSSprintSimulation::GenerateAITrace(WSTestAthlete::Uniform(45.0f), 77u, 77u, 150.0, 0.0, 0.98));
 	TestTrue(FString::Printf(
 			TEXT("regional played well (%.3f) beats elite played badly (%.3f)"),
 			RegionalWell.TimeSeconds, EliteBadly.TimeSeconds),
@@ -341,7 +326,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSSprintFalseStartTest,
 	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
 bool FWSSprintFalseStartTest::RunTest(const FString&)
 {
-	const FWSSprintAttributes Attributes = UniformAttributes(50.0f);
+	const FWSSprintAttributes Attributes = WSTestAthlete::Uniform(50.0f);
 
 	// Sub-100ms reaction: physically impossible as a reaction to the gun.
 	{
@@ -388,7 +373,7 @@ bool FWSSprintSplitCoherenceTest::RunTest(const FString&)
 		{
 			// A mid-table athlete playing loosely — the ordinary case the
 			// validator sees most, not a calibration extreme.
-			const FWSSprintAttributes Attributes = UniformAttributes(60.0f);
+			const FWSSprintAttributes Attributes = WSTestAthlete::Uniform(60.0f);
 			const FWSRaceOutcome Outcome = FWSSprintSimulation::RunTrace(Attributes, Seed,
 				FWSSprintSimulation::GenerateAITrace(
 					Attributes, Seed, Seed, 170.0, 30.0, 0.8, Spec), Spec);
@@ -474,7 +459,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSSprintDigestAndIdleTest,
 	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
 bool FWSSprintDigestAndIdleTest::RunTest(const FString&)
 {
-	const FWSSprintAttributes Attributes = UniformAttributes(50.0f);
+	const FWSSprintAttributes Attributes = WSTestAthlete::Uniform(50.0f);
 	const TArray<FWSSprintInputEvent> Trace =
 		FWSSprintSimulation::GenerateAITrace(Attributes, 9u, 9u, 180.0, 20.0, 0.7);
 

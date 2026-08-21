@@ -169,6 +169,28 @@ EVENTS: dict[str, CareerEvent] = {
         unit="m",
         distance_m=0.0,              # not distance COVERED in a race
     ),
+    # --- Throws ----------------------------------------------------------
+    # Measured in metres like the jumps, but from a CIRCLE rather than a
+    # board: there is no approach to run and no takeoff to place. What is
+    # thrown is released, and the release is the whole event.
+    #
+    # No reaction (nothing to react to) and no wind: World Athletics records
+    # wind for the horizontal jumps and the short sprints, not for throws.
+    "throw-shot": CareerEvent(
+        code="throw-shot",
+        name="Shot Put",
+        value_kind="distance",
+        lower_is_better=False,
+        min_plausible=1.00,
+        max_plausible=24.00,         # the world record is 23.56
+        governing_attributes=("acceleration", "max_speed", "technique"),
+        ceiling_at_zero=4.50,        # a complete novice
+        ceiling_at_hundred=23.00,
+        splits_expected=0,
+        requires_reaction=False,
+        unit="m",
+        distance_m=0.0,
+    ),
     # --- Middle distance -------------------------------------------------
     # A different KIND of event, not a longer sprint. There are no blocks and
     # so no reaction to measure (requires_reaction=False), and no wind is

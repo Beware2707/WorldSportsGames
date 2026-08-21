@@ -1,23 +1,11 @@
 #include "Misc/AutomationTest.h"
+#include "Tests/WSTestAthlete.h"
 #include "Simulation/WSPaceSimulation.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
 namespace
 {
-FWSSprintAttributes UniformAttributes(float Level)
-{
-	FWSSprintAttributes Attributes;
-	Attributes.Reaction = Level;
-	Attributes.Acceleration = Level;
-	Attributes.MaxSpeed = Level;
-	Attributes.StrideEfficiency = Level;
-	Attributes.Stamina = Level;
-	Attributes.Recovery = Level;
-	Attributes.Technique = Level;
-	return Attributes;
-}
-
 /** The server's exact ceiling formula (backend/app/services/career.py). */
 double ServerCeiling(const FWSPaceEventSpec& Spec, double MeanAttr)
 {
@@ -44,7 +32,7 @@ bool FWSPaceDeterminismTest::RunTest(const FString&)
 {
 	// Same athlete + seed + trace must reproduce the identical race, or
 	// server-side replay and the finish replay are both fiction.
-	const FWSSprintAttributes Attributes = UniformAttributes(55.0f);
+	const FWSSprintAttributes Attributes = WSTestAthlete::Uniform(55.0f);
 	const FWSPaceEventSpec& Spec = WSPaceEvents::Find(TEXT("middle-800m"));
 	const TArray<FWSPaceInputEvent> Trace = EvenEffort(0.72);
 
@@ -82,7 +70,7 @@ bool FWSPaceCeilingTest::RunTest(const FString&)
 		const double NearBand = 0.30 * Spec.CeilingAtZero;
 		for (const float Level : {0.0f, 25.0f, 40.0f, 55.0f, 70.0f, 85.0f, 100.0f})
 		{
-			const FWSSprintAttributes Attributes = UniformAttributes(Level);
+			const FWSSprintAttributes Attributes = WSTestAthlete::Uniform(Level);
 			const double Ceiling = ServerCeiling(Spec, Level);
 
 			double WorstMargin = TNumericLimits<double>::Max();
@@ -136,8 +124,8 @@ bool FWSPaceJudgementDecidesTest::RunTest(const FString&)
 	// ceiling, execution decides the race. A well-paced run by a MODEST
 	// athlete must beat a badly-paced run by a much better one.
 	const FWSPaceEventSpec& Spec = WSPaceEvents::Find(TEXT("middle-800m"));
-	const FWSSprintAttributes Modest = UniformAttributes(55.0f);
-	const FWSSprintAttributes Strong = UniformAttributes(75.0f);
+	const FWSSprintAttributes Modest = WSTestAthlete::Uniform(55.0f);
+	const FWSSprintAttributes Strong = WSTestAthlete::Uniform(75.0f);
 
 	for (const uint32 Seed : {5u, 61u, 909u})
 	{
@@ -196,7 +184,7 @@ bool FWSPaceSplitsTest::RunTest(const FString&)
 	{
 		for (const uint32 Seed : {11u, 222u, 3333u})
 		{
-			const FWSSprintAttributes Attributes = UniformAttributes(60.0f);
+			const FWSSprintAttributes Attributes = WSTestAthlete::Uniform(60.0f);
 			const FWSPaceOutcome Outcome = FWSMiddleDistanceSimulation::RunTrace(
 				Attributes, Seed,
 				FWSMiddleDistanceSimulation::GenerateAITrace(
@@ -237,7 +225,7 @@ bool FWSPaceKickTest::RunTest(const FString&)
 	// The kick is a decision with a cost, not a free button. Spending it
 	// with most of the race left must be worse than saving it.
 	const FWSPaceEventSpec& Spec = WSPaceEvents::Find(TEXT("middle-800m"));
-	const FWSSprintAttributes Attributes = UniformAttributes(60.0f);
+	const FWSSprintAttributes Attributes = WSTestAthlete::Uniform(60.0f);
 
 	for (const uint32 Seed : {3u, 44u, 555u})
 	{
@@ -283,7 +271,7 @@ bool FWSPaceStrategySweepTest::RunTest(const FString&)
 	{
 		for (const float Level : {25.0f, 55.0f, 85.0f})
 		{
-			const FWSSprintAttributes Attributes = UniformAttributes(Level);
+			const FWSSprintAttributes Attributes = WSTestAthlete::Uniform(Level);
 			const double Ceiling = ServerCeiling(Spec, Level);
 			double BestFound = TNumericLimits<double>::Max();
 			FString BestDescription;

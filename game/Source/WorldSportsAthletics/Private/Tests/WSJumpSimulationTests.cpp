@@ -1,23 +1,11 @@
 #include "Misc/AutomationTest.h"
+#include "Tests/WSTestAthlete.h"
 #include "Simulation/WSJumpSimulation.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
 namespace
 {
-FWSSprintAttributes UniformAttributes(float Level)
-{
-	FWSSprintAttributes Attributes;
-	Attributes.Reaction = Level;
-	Attributes.Acceleration = Level;
-	Attributes.MaxSpeed = Level;
-	Attributes.StrideEfficiency = Level;
-	Attributes.Stamina = Level;
-	Attributes.Recovery = Level;
-	Attributes.Technique = Level;
-	return Attributes;
-}
-
 /**
  * The server's ceiling formula. Note the direction: for a distance event
  * the ceiling is a MAXIMUM, so a legal mark is at or BELOW it — the
@@ -35,7 +23,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSJumpDeterminismTest,
 	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
 bool FWSJumpDeterminismTest::RunTest(const FString&)
 {
-	const FWSSprintAttributes Attributes = UniformAttributes(60.0f);
+	const FWSSprintAttributes Attributes = WSTestAthlete::Uniform(60.0f);
 	const FWSJumpEventSpec& Spec = WSJumpEvents::Find(TEXT("jump-long"));
 	const TArray<FWSJumpInputEvent> Trace =
 		FWSJumpSimulation::GenerateAITrace(Attributes, 42u, 42u, 0.8, Spec);
@@ -65,7 +53,7 @@ bool FWSJumpCeilingTest::RunTest(const FString&)
 	{
 		for (const float Level : {0.0f, 25.0f, 40.0f, 55.0f, 70.0f, 85.0f, 100.0f})
 		{
-			const FWSSprintAttributes Attributes = UniformAttributes(Level);
+			const FWSSprintAttributes Attributes = WSTestAthlete::Uniform(Level);
 			const double Ceiling = ServerCeiling(Spec, Level);
 
 			double BestMark = 0.0;
@@ -136,7 +124,7 @@ bool FWSJumpBoardDecidesTest::RunTest(const FString&)
 	// half a metre early is half a metre shorter — however good the flight
 	// was. This is the whole tension of the event and it must be real.
 	const FWSJumpEventSpec& Spec = WSJumpEvents::Find(TEXT("jump-long"));
-	const FWSSprintAttributes Attributes = UniformAttributes(70.0f);
+	const FWSSprintAttributes Attributes = WSTestAthlete::Uniform(70.0f);
 
 	for (const uint32 Seed : {6u, 77u, 808u})
 	{
@@ -191,7 +179,7 @@ bool FWSJumpFoulTest::RunTest(const FString&)
 	// reason hitting the board is a nerve-holding skill rather than a
 	// button press.
 	const FWSJumpEventSpec& Spec = WSJumpEvents::Find(TEXT("jump-long"));
-	const FWSSprintAttributes Attributes = UniformAttributes(70.0f);
+	const FWSSprintAttributes Attributes = WSTestAthlete::Uniform(70.0f);
 
 	for (const uint32 Seed : {6u, 77u, 808u})
 	{
@@ -276,8 +264,8 @@ bool FWSJumpSkillOverAttributesTest::RunTest(const FString&)
 	// Attributes raise the ceiling; execution decides the jump. A modest
 	// jumper who hits the board must beat a far better one who does not.
 	const FWSJumpEventSpec& Spec = WSJumpEvents::Find(TEXT("jump-long"));
-	const FWSSprintAttributes Modest = UniformAttributes(55.0f);
-	const FWSSprintAttributes Strong = UniformAttributes(80.0f);
+	const FWSSprintAttributes Modest = WSTestAthlete::Uniform(55.0f);
+	const FWSSprintAttributes Strong = WSTestAthlete::Uniform(80.0f);
 
 	for (const uint32 Seed : {3u, 44u, 515u})
 	{
