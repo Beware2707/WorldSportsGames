@@ -325,7 +325,39 @@ scores is under half a second. A green NOW cue in the last 2.2m makes it
 hittable — a real jumper knows when they are on the board rather than
 computing metres — but whether it is *fair* needs someone playing it.
 
-### 6.6 Deliberately still open
+### 6.6 Throws (shot put) — a release, not an approach
+
+A fourth event kind. There is no approach to run and no takeoff to place:
+the athlete winds up in place, power rises to a peak and then falls away
+because a throw held too long is one they have already begun to unwind
+from, and letting go is a single decision that sets both the speed the shot
+leaves at and — through technique — its angle. Holding on carries the throw
+out of the circle: a foul and no mark, the same rule as a jumper past the
+board.
+
+The field-event path is now shared with the jumps: one attempt series, one
+scoreboard, one submission. What differs stays honest — a jump reports the
+wind that stood for its best attempt, a throw reports none, because the
+sport records no wind for throws.
+
+**The anti-pay-to-win claim is narrower than first assumed.** Measured over
+24 throws, wild timing still returns about three quarters of an athlete's
+ceiling, so execution closes an attribute gap of roughly 15-20 points and
+no further: a judged thrower at 55 beats a wild one at 70 and loses to a
+wild one at 85. The test states that boundary rather than asserting a
+guarantee the model does not provide. What training buys is a ceiling, not
+a result — and that is worth remembering when tuning any later event.
+
+Three defects came from running against the real server rather than from
+any offline test:
+
+| Defect | Why it hid |
+|---|---|
+| Live tests created athletes with gender "female" against a `^[MFX]$` schema | The smoke athlete already existed, so the create path only ran for a NEW account. The game's own screen was always correct |
+| The live suite outgrew the server's 10-results-per-minute anti-script cap | Thirteen submissions landed on one athlete inside a minute; the fix is spreading the load, not raising the cap |
+| The bracket test assumed a tournament starts at qualification | A tournament survives the app closing, so the test can meet one already under way |
+
+### 6.7 Deliberately still open
 
 - **The 200m and 400m are run on a straight track.** Bends need track
   geometry, lane-stagger and a camera that follows a curve; the simulation is

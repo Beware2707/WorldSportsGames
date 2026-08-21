@@ -970,6 +970,16 @@ private:
 
 	FText GetSpeedText() const
 	{
+		// A thrower does not travel: "0.0 m/s · 0 m" is not a measurement,
+		// it is a runner's readout left switched on for an athlete standing
+		// still in a circle.
+		if (AWSSprintGameMode* ThrowMode = Mode())
+		{
+			if (ThrowMode->IsThrowEvent())
+			{
+				return FText::GetEmpty();
+			}
+		}
 		const FWSRaceState* State = PlayerState();
 		if (!State || !State->bReleased || State->bFinished)
 		{
@@ -1060,11 +1070,12 @@ private:
 
 	EVisibility GetBandVisibility() const
 	{
-		// A paced event has no cadence to match. Showing a rhythm band there
-		// would be telling the player to do something the simulation does
-		// not measure.
+		// A paced event has no cadence to match, and neither has a throw:
+		// the wind-up runs on its own. Showing a rhythm band there would be
+		// telling the player to do something the simulation does not
+		// measure. A JUMP keeps it, because its approach is a sprint.
 		AWSSprintGameMode* GameModePtr = Mode();
-		if (GameModePtr && GameModePtr->IsPaceEvent())
+		if (GameModePtr && (GameModePtr->IsPaceEvent() || GameModePtr->IsThrowEvent()))
 		{
 			return EVisibility::Collapsed;
 		}
