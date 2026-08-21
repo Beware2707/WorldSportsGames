@@ -78,6 +78,13 @@ public:
 	/** Where the board is, in cm; 0 when this is not a jumping event. */
 	float GetBoardX() const;
 
+	/** Put out the throwing circle, or take it away. A throw happens in one
+	 * place, and a circle the player cannot see is a rule they cannot
+	 * read — the same mistake as hurdles with no barriers. */
+	void SetThrowCircle(bool bVisible);
+
+	bool IsThrowCircleVisible() const;
+
 	/** How many barriers are currently standing, for tests. */
 	int32 GetVisibleHurdleCount() const;
 
@@ -126,6 +133,9 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UStaticMeshComponent> SandPit;
+
+	UPROPERTY()
+	TObjectPtr<UStaticMeshComponent> ThrowCircle;
 
 	/** Starting blocks: a race has them, a runway does not. */
 	UPROPERTY()

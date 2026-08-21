@@ -159,6 +159,34 @@ public:
 				]
 			]
 
+			// --- The throw: power, and a button to let it go -------------
+			+ SOverlay::Slot()
+			.HAlign(HAlign_Center).VAlign(VAlign_Bottom)
+			.Padding(0.0f, 0.0f, 0.0f, 172.0f)
+			[
+				SNew(STextBlock).Font(Font(30, true))
+				.ColorAndOpacity(this, &SWSSprintHudPanel::GetThrowTextColour)
+				.Visibility(this, &SWSSprintHudPanel::GetThrowVisibility)
+				.Text(this, &SWSSprintHudPanel::GetThrowText)
+			]
+			+ SOverlay::Slot()
+			.HAlign(HAlign_Right).VAlign(VAlign_Bottom)
+			.Padding(0.0f, 0.0f, 48.0f, 120.0f)
+			[
+				SNew(SBox)
+				.WidthOverride(300.0f).HeightOverride(160.0f)
+				.Visibility(this, &SWSSprintHudPanel::GetThrowButtonVisibility)
+				[
+					SNew(SButton)
+					.HAlign(HAlign_Center).VAlign(VAlign_Center)
+					.OnClicked(this, &SWSSprintHudPanel::OnThrowRelease)
+					[
+						SNew(STextBlock).Font(Font(34, true))
+						.Text(LOCTEXT("ReleaseButton", "RELEASE"))
+					]
+				]
+			]
+
 			// --- The jump: board countdown, series, and TAKE OFF ---------
 			+ SOverlay::Slot()
 			.HAlign(HAlign_Center).VAlign(VAlign_Bottom)
@@ -914,9 +942,10 @@ private:
 		{
 			return FText::GetEmpty();
 		}
-		if (GameModePtr->IsJumpEvent())
+		if (GameModePtr->IsFieldEvent())
 		{
-			// A jump has no time, so the race clock has nothing to say. It
+			// A field event has no time, so the race clock has nothing to
+			// say. It
 			// showed the approach's elapsed seconds and then "--.--" once
 			// the series ended, which reads as a missing time rather than
 			// as an event that never had one. The mark takes its place.
@@ -1104,6 +1133,59 @@ private:
 		return FReply::Handled();
 	}
 
+	/** The wind-up, as a thrower reads it: how much power is there NOW and
+	 * whether it is still building or already going away. */
+	FText GetThrowText() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		if (!GameModePtr || !GameModePtr->IsThrowEvent())
+		{
+			return FText::GetEmpty();
+		}
+		const float Power = GameModePtr->GetThrowPower();
+		if (Power >= 0.97f)
+		{
+			return LOCTEXT("ThrowNow", "NOW");
+		}
+		// A percentage rather than a bar shape: the decision is how much
+		// power is in the throw, and the number says it without a legend.
+		return FText::FromString(FString::Printf(
+			TEXT("POWER  %d%%"), FMath::RoundToInt(Power * 100.0f)));
+	}
+
+	FSlateColor GetThrowTextColour() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		const float Power = GameModePtr ? GameModePtr->GetThrowPower() : 0.0f;
+		return Power >= 0.97f
+			? FSlateColor(FLinearColor(0.35f, 1.0f, 0.45f))
+			: FSlateColor(FLinearColor(1.0f, 0.86f, 0.35f));
+	}
+
+	EVisibility GetThrowVisibility() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		return GameModePtr && GameModePtr->IsThrowEvent()
+			&& GameModePtr->GetAppState() == EWSAppState::Racing
+			&& GameModePtr->GetPhase() == EWSEventPhase::Active
+			? EVisibility::HitTestInvisible : EVisibility::Collapsed;
+	}
+
+	EVisibility GetThrowButtonVisibility() const
+	{
+		return GetThrowVisibility() == EVisibility::Collapsed
+			? EVisibility::Collapsed : EVisibility::Visible;
+	}
+
+	FReply OnThrowRelease()
+	{
+		if (AWSSprintGameMode* GameModePtr = Mode())
+		{
+			GameModePtr->PlayerThrowRelease();
+		}
+		return FReply::Handled();
+	}
+
 	/** The board countdown: what a jumper is actually reading. */
 	FText GetJumpText() const
 	{
@@ -1167,15 +1249,16 @@ private:
 	EVisibility GetJumpSeriesVisibility() const
 	{
 		AWSSprintGameMode* GameModePtr = Mode();
-		return GameModePtr && GameModePtr->IsJumpEvent()
+		return GameModePtr && GameModePtr->IsFieldEvent()
 			&& GameModePtr->GetAppState() == EWSAppState::Racing
 			? EVisibility::HitTestInvisible : EVisibility::Collapsed;
 	}
 
 	EVisibility GetReplayButtonVisibility() const
 	{
+		// No finish line in a field event, so nothing to replay.
 		AWSSprintGameMode* GameModePtr = Mode();
-		return GameModePtr && GameModePtr->IsJumpEvent()
+		return GameModePtr && GameModePtr->IsFieldEvent()
 			? EVisibility::Collapsed : EVisibility::Visible;
 	}
 
@@ -1203,7 +1286,7 @@ private:
 	FText GetJumpSeriesText() const
 	{
 		AWSSprintGameMode* GameModePtr = Mode();
-		if (!GameModePtr || !GameModePtr->IsJumpEvent())
+		if (!GameModePtr || !GameModePtr->IsFieldEvent())
 		{
 			return FText::GetEmpty();
 		}
@@ -1345,7 +1428,7 @@ private:
 		{
 			return FText::GetEmpty();
 		}
-		if (GameModePtr->IsJumpEvent())
+		if (GameModePtr->IsFieldEvent())
 		{
 			// A field event has no finishing position and no time. Saying
 			// "0th --.--" is race language borrowed for something that is

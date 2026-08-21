@@ -16,6 +16,7 @@
 #include "Race/WSSprintTrack.h"
 #include "Simulation/WSSprintDifficulty.h"
 #include "Simulation/WSJumpSimulation.h"
+#include "Simulation/WSThrowSimulation.h"
 #include "Simulation/WSSprintEvents.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
@@ -461,6 +462,55 @@ const FWSJumpEventSpec& AWSSprintGameMode::CurrentJumpEvent() const
 	return WSJumpEvents::Find(SelectedEventCode);
 }
 
+const FWSThrowEventSpec& AWSSprintGameMode::CurrentThrowEvent() const
+{
+	return WSThrowEvents::Find(SelectedEventCode);
+}
+
+bool AWSSprintGameMode::IsThrowEvent() const
+{
+	for (const FWSThrowEventSpec& Spec : WSThrowEvents::All())
+	{
+		if (Spec.Code == SelectedEventCode)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+float AWSSprintGameMode::GetThrowPower() const
+{
+	return ThrowSim.IsValid() ? static_cast<float>(ThrowSim->GetState().Power) : 0.0f;
+}
+
+float AWSSprintGameMode::GetThrowWindUp() const
+{
+	return ThrowSim.IsValid()
+		? FMath::Clamp(static_cast<float>(ThrowSim->GetState().WindUp), 0.0f, 1.0f)
+		: 0.0f;
+}
+
+void AWSSprintGameMode::PlayerThrowRelease()
+{
+	if (!ThrowSim.IsValid() || !bRaceRunning || bPaused || RaceClock < 0.0)
+	{
+		return;
+	}
+	const FWSThrowInputEvent Release{RaceClock, EWSThrowInputType::Release};
+	PlayerThrowTrace.Add(Release);
+	ThrowSim->AddInput(Release);
+}
+
+int32 AWSSprintGameMode::FieldAttemptCount() const
+{
+	if (IsThrowEvent())
+	{
+		return CurrentThrowEvent().Attempts;
+	}
+	return IsJumpEvent() ? CurrentJumpEvent().Attempts : 0;
+}
+
 bool AWSSprintGameMode::IsJumpEvent() const
 {
 	for (const FWSJumpEventSpec& Spec : WSJumpEvents::All())
@@ -492,13 +542,14 @@ FString AWSSprintGameMode::GetAttemptSummary() const
 	FString Text;
 	for (int32 Index = 0; Index < Attempts.Num(); ++Index)
 	{
-		// A foul is not a short jump, and writing it as 0.00 m would say it
-		// was. The scoreboard says X, because that is what happened.
+		// A foul is not a short attempt, and writing it as 0.00 m would say
+		// it was. The scoreboard says X and WHY, because the two failures
+		// need opposite corrections.
 		Text += Attempts[Index].bFoul
 			? FString::Printf(TEXT("%d. X  %s") LINE_TERMINATOR, Index + 1,
-				Attempts[Index].bOverstepped ? TEXT("over the board") : TEXT("short of the pit"))
+				*Attempts[Index].FoulReason)
 			: FString::Printf(TEXT("%d. %.2f m") LINE_TERMINATOR, Index + 1,
-				Attempts[Index].DistanceMetres);
+				Attempts[Index].Metres);
 	}
 	return Text;
 }
@@ -534,6 +585,10 @@ int32 AWSSprintGameMode::SelectedSplitCount() const
 
 FString AWSSprintGameMode::GetSelectedEventName() const
 {
+	if (IsThrowEvent())
+	{
+		return CurrentThrowEvent().DisplayName;
+	}
 	if (IsJumpEvent())
 	{
 		return CurrentJumpEvent().DisplayName;
@@ -561,6 +616,14 @@ void AWSSprintGameMode::SelectEvent(const FString& EventCode)
 			return;
 		}
 	}
+	for (const FWSThrowEventSpec& Spec : WSThrowEvents::All())
+	{
+		if (Spec.Code == EventCode)
+		{
+			SelectedEventCode = Spec.Code;
+			return;
+		}
+	}
 	SelectedEventCode = WSSprintEvents::Find(EventCode).Code;
 }
 
@@ -578,6 +641,10 @@ TArray<FString> AWSSprintGameMode::AllEventCodes()
 		Codes.Add(Spec.Code);
 	}
 	for (const FWSJumpEventSpec& Spec : WSJumpEvents::All())
+	{
+		Codes.Add(Spec.Code);
+	}
+	for (const FWSThrowEventSpec& Spec : WSThrowEvents::All())
 	{
 		Codes.Add(Spec.Code);
 	}
@@ -867,33 +934,40 @@ FString AWSSprintGameMode::GetDrillPrompt() const
 	return TEXT("Press and hold, release the instant you hear the tone");
 }
 
-void AWSSprintGameMode::StartJumpAttempt()
+void AWSSprintGameMode::StartFieldAttempt()
 {
-	JumpSim = MakeShared<FWSJumpSimulation>(
-		ResolvePlayerAttributes(), RaceSeed + AttemptIndex, CurrentJumpEvent());
-	PlayerJumpTrace.Reset();
-	RaceClock = -MinSetSeconds;   // a moment to gather at the top of the runway
+	// One seed per ATTEMPT, so the three are genuinely different: a jumper
+	// meets a different wind and a thrower a differently drifted peak.
+	const uint32 AttemptSeed = RaceSeed + AttemptIndex;
+	if (IsThrowEvent())
+	{
+		ThrowSim = MakeShared<FWSThrowSimulation>(
+			ResolvePlayerAttributes(), AttemptSeed, CurrentThrowEvent());
+		PlayerThrowTrace.Reset();
+	}
+	else
+	{
+		JumpSim = MakeShared<FWSJumpSimulation>(
+			ResolvePlayerAttributes(), AttemptSeed, CurrentJumpEvent());
+		PlayerJumpTrace.Reset();
+	}
+	RaceClock = -MinSetSeconds;   // a moment to gather before the attempt
 	bRaceRunning = true;
 	SetPhase(EWSEventPhase::Ready);
 }
 
-void AWSSprintGameMode::FinishJumpAttempt()
+void AWSSprintGameMode::RecordFieldAttempt(const FWSFieldAttempt& Attempt)
 {
-	if (!JumpSim.IsValid())
+	Attempts.Add(Attempt);
+	if (!Attempt.bFoul)
 	{
-		return;
-	}
-	const FWSJumpOutcome Outcome = JumpSim->GetOutcome();
-	Attempts.Add(Outcome);
-	if (!Outcome.bFoul)
-	{
-		BestMark = FMath::Max(BestMark, Outcome.DistanceMetres);
+		BestMark = FMath::Max(BestMark, Attempt.Metres);
 	}
 
 	++AttemptIndex;
-	if (AttemptIndex < CurrentJumpEvent().Attempts)
+	if (AttemptIndex < FieldAttemptCount())
 	{
-		// Another attempt: the series is the competition, and a foul costs
+		// Another attempt: the series IS the competition, and a foul costs
 		// the attempt rather than the whole event.
 		AttemptRestSeconds = 1.6f;
 		return;
@@ -904,7 +978,7 @@ void AWSSprintGameMode::FinishJumpAttempt()
 	SetPhase(EWSEventPhase::Finishing);
 }
 
-void AWSSprintGameMode::SubmitJumpResult()
+void AWSSprintGameMode::SubmitFieldResult()
 {
 	// The result of a jumping event is the BEST LEGAL mark of the series,
 	// which is how the sport scores it. Three fouls is no mark at all, and
@@ -912,7 +986,8 @@ void AWSSprintGameMode::SubmitJumpResult()
 	// jump of zero metres rather than as a competition without a result.
 	if (BestMark <= 0.0)
 	{
-		ServerVerdict = TEXT("No mark — all three attempts fouled");
+		ServerVerdict = FString::Printf(
+			TEXT("No mark — all %d attempts fouled"), FieldAttemptCount());
 		return;
 	}
 
@@ -926,9 +1001,9 @@ void AWSSprintGameMode::SubmitJumpResult()
 
 	// The wind that stood for the best attempt, not the last one.
 	double BestWind = 0.0;
-	for (const FWSJumpOutcome& Attempt : Attempts)
+	for (const FWSFieldAttempt& Attempt : Attempts)
 	{
-		if (!Attempt.bFoul && FMath::IsNearlyEqual(Attempt.DistanceMetres, BestMark))
+		if (!Attempt.bFoul && FMath::IsNearlyEqual(Attempt.Metres, BestMark))
 		{
 			BestWind = Attempt.Wind;
 			break;
@@ -941,13 +1016,17 @@ void AWSSprintGameMode::SubmitJumpResult()
 	// that higher is better; nothing here has to know that, because the
 	// number is simply the mark.
 	Result.ValueNum = BestMark;
-	// No blocks on a runway, so no reaction was measured.
+	// Nothing to react to in a field event, so no reaction is reported.
 	Result.bHasReactionMs = false;
-	// A jump IS a wind-affected mark, and the +2.0 limit applies.
-	Result.bHasWind = true;
+	// A JUMP is a wind-affected mark and the +2.0 limit applies to it. A
+	// THROW is not: the sport records no wind for throws, so claiming one
+	// would be inventing a measurement.
+	Result.bHasWind = IsJumpEvent();
 	Result.Wind = BestWind;
 	Result.RngSeed = FString::Printf(TEXT("%u"), RaceSeed);
-	Result.InputDigest = FWSJumpSimulation::DigestTrace(PlayerJumpTrace);
+	Result.InputDigest = IsThrowEvent()
+		? FWSThrowSimulation::DigestTrace(PlayerThrowTrace)
+		: FWSJumpSimulation::DigestTrace(PlayerJumpTrace);
 	Result.ClientRef = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens);
 
 	bAwaitingServer = true;
@@ -968,6 +1047,65 @@ void AWSSprintGameMode::SubmitJumpResult()
 		});
 }
 
+void AWSSprintGameMode::TickThrow(float DeltaSeconds)
+{
+	if (AttemptRestSeconds > 0.0f)
+	{
+		AttemptRestSeconds -= DeltaSeconds;
+		if (AttemptRestSeconds <= 0.0f)
+		{
+			AttemptRestSeconds = 0.0f;
+			StartFieldAttempt();
+		}
+		return;
+	}
+	if (!ThrowSim.IsValid())
+	{
+		return;
+	}
+
+	RaceClock += DeltaSeconds;
+	if (GetPhase() == EWSEventPhase::Ready && RaceClock >= 0.0)
+	{
+		SetPhase(EWSEventPhase::Active);
+	}
+	if (RaceClock < 0.0)
+	{
+		return; // still gathering in the circle
+	}
+
+	// Fixed-step catch-up, as every event uses: a stutter cannot lengthen
+	// a throw, because the simulation never sees a frame delta.
+	int32 Steps = 0;
+	while (ThrowSim->GetState().RaceTime < RaceClock && Steps < 128)
+	{
+		if (!ThrowSim->Step())
+		{
+			break;
+		}
+		++Steps;
+	}
+
+	if (PlayerRunner)
+	{
+		// The thrower stays in the circle: the shot travels, not the
+		// athlete, so there is no distance to drive the visual with.
+		PlayerRunner->DriveVisual(3, TEXT("You"), 0.0, 0.0, /*bAirborne=*/false);
+	}
+
+	if (ThrowSim->GetState().bFinished)
+	{
+		const FWSThrowOutcome Outcome = ThrowSim->GetOutcome();
+		FWSFieldAttempt Attempt;
+		Attempt.Metres = Outcome.DistanceMetres;
+		Attempt.bFoul = Outcome.bFoul;
+		Attempt.Wind = 0.0; // no wind is recorded for throws
+		Attempt.FoulReason = Outcome.bCarriedOut
+			? TEXT("carried out of the circle") : TEXT("no mark");
+		RecordFieldAttempt(Attempt);
+	}
+}
+
 void AWSSprintGameMode::TickJump(float DeltaSeconds)
 {
 	if (AttemptRestSeconds > 0.0f)
@@ -976,7 +1114,7 @@ void AWSSprintGameMode::TickJump(float DeltaSeconds)
 		if (AttemptRestSeconds <= 0.0f)
 		{
 			AttemptRestSeconds = 0.0f;
-			StartJumpAttempt();
+			StartFieldAttempt();
 		}
 		return;
 	}
@@ -1016,7 +1154,14 @@ void AWSSprintGameMode::TickJump(float DeltaSeconds)
 
 	if (State.bFinished)
 	{
-		FinishJumpAttempt();
+		FWSFieldAttempt Attempt;
+		const FWSJumpOutcome Outcome = JumpSim->GetOutcome();
+		Attempt.Metres = Outcome.DistanceMetres;
+		Attempt.bFoul = Outcome.bFoul;
+		Attempt.Wind = Outcome.Wind;
+		Attempt.FoulReason = Outcome.bOverstepped
+			? TEXT("over the board") : TEXT("short of the pit");
+		RecordFieldAttempt(Attempt);
 	}
 }
 
@@ -1032,6 +1177,8 @@ void AWSSprintGameMode::StartRace()
 		Track->SetJumpPit(
 			IsJumpEvent() ? static_cast<float>(CurrentJumpEvent().RunwayMetres) : 0.0f,
 			10.0f);
+		// The throwing circle: the whole event happens inside it.
+		Track->SetThrowCircle(IsThrowEvent());
 		// Barriers belong to the event, so a flat race takes them away and a
 		// hurdles race stands exactly its own up.
 		const bool bHurdles = !IsPaceEvent() && CurrentEvent().HasHurdles();
@@ -1092,12 +1239,11 @@ void AWSSprintGameMode::StartRace()
 		}
 	}
 
-	if (IsJumpEvent())
+	if (IsFieldEvent())
 	{
-		// A field event is not a race: one athlete on a runway, three
-		// attempts, and a mark in metres. There is no eight-lane field to
-		// spawn and no gun to react to — only the player runs, and the
-		// rivals' marks are simulated when the series is scored.
+		// A field event is not a race: one athlete, a series of attempts,
+		// and a mark in metres. There is no eight-lane field to spawn and
+		// no gun to react to.
 		Attempts.Reset();
 		AttemptIndex = 0;
 		BestMark = 0.0;
@@ -1111,7 +1257,7 @@ void AWSSprintGameMode::StartRace()
 			Runners.Add(Runner);
 			PlayerRunner = Runner;
 		}
-		StartJumpAttempt();
+		StartFieldAttempt();
 		return;
 	}
 
@@ -1245,7 +1391,11 @@ void AWSSprintGameMode::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
-	if (IsJumpEvent() && bRaceRunning && !bPaused)
+	if (IsThrowEvent() && bRaceRunning && !bPaused)
+	{
+		TickThrow(DeltaSeconds);
+	}
+	else if (IsJumpEvent() && bRaceRunning && !bPaused)
 	{
 		TickJump(DeltaSeconds);
 	}
@@ -1542,7 +1692,7 @@ void AWSSprintGameMode::TickReplay(float DeltaSeconds)
 
 void AWSSprintGameMode::BuildStandings()
 {
-	if (IsJumpEvent())
+	if (IsFieldEvent())
 	{
 		// A field event has no finishing order to build: the result is a
 		// series of marks, and the best legal one is what counts. The
@@ -1612,9 +1762,9 @@ int32 AWSSprintGameMode::GetPlayerPosition() const
 
 void AWSSprintGameMode::SubmitPlayerResult()
 {
-	if (IsJumpEvent())
+	if (IsFieldEvent())
 	{
-		SubmitJumpResult();
+		SubmitFieldResult();
 		return;
 	}
 	if (!PlayerRunner)
@@ -1736,6 +1886,13 @@ void AWSSprintGameMode::PlayerPress()
 	{
 		return;
 	}
+	if (IsThrowEvent())
+	{
+		// A throw has no rhythm to keep: the wind-up runs on its own and
+		// the only decision is when to let go. Tapping does nothing, which
+		// is honest — there is nothing for a tap to mean here.
+		return;
+	}
 	if (IsJumpEvent())
 	{
 		// The approach IS a sprint, so the same rhythm skill drives it.
@@ -1791,9 +1948,9 @@ void AWSSprintGameMode::PlayerTakeoff()
 
 void AWSSprintGameMode::PlayerRelease()
 {
-	if (IsJumpEvent())
+	if (IsFieldEvent())
 	{
-		return; // nothing to release: there are no blocks on a runway
+		return; // nothing to release: there are no blocks in a field event
 	}
 	if (IsPaceEvent())
 	{
@@ -1821,6 +1978,11 @@ void AWSSprintGameMode::PlayerLean()
 {
 	if (!PlayerRunner || !bRaceRunning || bPaused)
 	{
+		return;
+	}
+	if (IsThrowEvent())
+	{
+		PlayerThrowRelease();
 		return;
 	}
 	if (IsJumpEvent())

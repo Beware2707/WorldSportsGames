@@ -5,6 +5,7 @@
 #include "Online/WSOnlineSubsystem.h"
 #include "Race/WSSprintAudio.h"
 #include "Simulation/WSJumpSimulation.h"
+#include "Simulation/WSThrowSimulation.h"
 #include "Simulation/WSPaceSimulation.h"
 #include "Simulation/WSSprintEvents.h"
 #include "Simulation/WSSprintSimulation.h"
@@ -29,6 +30,27 @@ enum class EWSAppState : uint8
 	CreateAthlete, // first-run career creation
 	Training,      // a drill in progress
 	Tournament     // bracket: enter, see the draw, race the next round
+};
+
+/**
+ * One attempt in a field event's series.
+ *
+ * Jumps and throws differ in everything except how they are SCORED: a mark
+ * in metres, or a foul with a reason. Keeping one shape for the series
+ * means the scoreboard, the best mark and the submission are written once
+ * rather than once per kind.
+ */
+USTRUCT(BlueprintType)
+struct WORLDSPORTSATHLETICS_API FWSFieldAttempt
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Race") double Metres = 0.0;
+	UPROPERTY(BlueprintReadOnly, Category = "Race") bool bFoul = false;
+	/** Why it was a foul, in the sport's own words. Empty for a mark. */
+	UPROPERTY(BlueprintReadOnly, Category = "Race") FString FoulReason;
+	/** Wind that stood for this attempt; 0 for events that record none. */
+	UPROPERTY(BlueprintReadOnly, Category = "Race") double Wind = 0.0;
 };
 
 /** One row of the server's leaderboard. */
@@ -107,12 +129,31 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Race")
 	bool IsPaceEvent() const;
 
-	/** True for a FIELD event: a runway, a board, and a mark in metres
+	/** True for a FIELD event: a mark in metres from a series of attempts,
 	 * instead of a race against a field. */
 	UFUNCTION(BlueprintPure, Category = "Race")
 	bool IsJumpEvent() const;
 
+	UFUNCTION(BlueprintPure, Category = "Race")
+	bool IsThrowEvent() const;
+
+	/** Either kind of field event: both are a series, not a race. */
+	UFUNCTION(BlueprintPure, Category = "Race")
+	bool IsFieldEvent() const { return IsJumpEvent() || IsThrowEvent(); }
+
 	const FWSJumpEventSpec& CurrentJumpEvent() const;
+	const FWSThrowEventSpec& CurrentThrowEvent() const;
+
+	/** Wind-up progress and power, 0..1, for a throw's HUD. */
+	UFUNCTION(BlueprintPure, Category = "Race")
+	float GetThrowPower() const;
+
+	UFUNCTION(BlueprintPure, Category = "Race")
+	float GetThrowWindUp() const;
+
+	/** Let the throw go. */
+	UFUNCTION(BlueprintCallable, Category = "Race")
+	void PlayerThrowRelease();
 
 	// -- The jump, as the HUD sees it ------------------------------------
 
@@ -424,17 +465,22 @@ private:
 	// -- Field events -----------------------------------------------------
 	TSharedPtr<FWSJumpSimulation> JumpSim;
 	TArray<FWSJumpInputEvent> PlayerJumpTrace;
+	TSharedPtr<FWSThrowSimulation> ThrowSim;
+	TArray<FWSThrowInputEvent> PlayerThrowTrace;
 	/** Marks so far. A foul is recorded as a foul, not as zero metres. */
-	TArray<FWSJumpOutcome> Attempts;
+	TArray<FWSFieldAttempt> Attempts;
 	int32 AttemptIndex = 0;
 	double BestMark = 0.0;
 	/** Seconds left of the pause between attempts. */
 	float AttemptRestSeconds = 0.0f;
 
-	void SubmitJumpResult();
-	void StartJumpAttempt();
-	void FinishJumpAttempt();
+	void SubmitFieldResult();
+	void StartFieldAttempt();
+	void RecordFieldAttempt(const FWSFieldAttempt& Attempt);
 	void TickJump(float DeltaSeconds);
+	void TickThrow(float DeltaSeconds);
+	/** How many attempts this field event allows. */
+	int32 FieldAttemptCount() const;
 	/** True while the current race belongs to a tournament round: its result
 	 * goes to the bracket endpoint, which scores it against the field the
 	 * server stored BEFORE the race. */

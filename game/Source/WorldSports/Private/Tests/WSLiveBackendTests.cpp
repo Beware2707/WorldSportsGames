@@ -324,13 +324,36 @@ bool FWSWaitForBracket::Update()
 			Test->TestEqual(TEXT("elimination has no final position"),
 				State->FinalPosition, 0);
 		}
-		// Rounds must run in the server's order, never skipped.
+		// Rounds must run in the server's order, never skipped — but the
+		// bracket may legitimately be RESUMED part-way, because a
+		// tournament survives the app closing and this test may meet one
+		// already under way from an earlier run. What has to hold is that
+		// the rounds seen are consecutive and in order from wherever they
+		// started, not that they always start at qualification.
 		static const TCHAR* Order[] = {TEXT("qualification"), TEXT("heat"),
 			TEXT("semifinal"), TEXT("final")};
+		int32 Start = 0;
+		if (State->RoundNames.Num() > 0)
+		{
+			for (int32 Index = 0; Index < UE_ARRAY_COUNT(Order); ++Index)
+			{
+				if (State->RoundNames[0] == FString(Order[Index]))
+				{
+					Start = Index;
+					break;
+				}
+			}
+		}
 		for (int32 Index = 0; Index < State->RoundNames.Num(); ++Index)
 		{
+			const int32 Expected = Start + Index;
+			if (!Test->TestTrue(TEXT("the bracket does not run past the final"),
+					Expected < UE_ARRAY_COUNT(Order)))
+			{
+				break;
+			}
 			Test->TestEqual(TEXT("rounds run in bracket order"),
-				State->RoundNames[Index], FString(Order[Index]));
+				State->RoundNames[Index], FString(Order[Expected]));
 		}
 	}
 	GameInstance->Shutdown();

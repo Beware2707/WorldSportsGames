@@ -7,6 +7,7 @@
 #include "Race/WSSprintRunner.h"
 #include "Race/WSSprintTrack.h"
 #include "Simulation/WSJumpSimulation.h"
+#include "Simulation/WSThrowSimulation.h"
 #include "Simulation/WSPaceSimulation.h"
 #include "Simulation/WSSprintEvents.h"
 #include "Tests/AutomationCommon.h"
@@ -450,6 +451,72 @@ bool FWSJumpFlowTest::RunTest(const FString&)
 		// And the HUD never announces an attempt that does not exist.
 		TestEqual(FString::Printf(TEXT("%s: no fourth attempt announced"), *Spec.Code),
 			Harness.GameMode->GetJumpAttempt(), Spec.Attempts);
+		TestTrue(FString::Printf(TEXT("%s: a mark was set (best %.2f m)"),
+				*Spec.Code, Harness.GameMode->GetBestMark()),
+			Harness.GameMode->GetBestMark() >= Spec.MinPlausibleMetres);
+		TestTrue(FString::Printf(TEXT("%s: the mark is inside the plausible band"),
+				*Spec.Code),
+			Harness.GameMode->GetBestMark() <= Spec.MaxPlausibleMetres);
+		TestTrue(FString::Printf(TEXT("%s: reached the result"), *Spec.Code),
+			static_cast<int32>(Harness.GameMode->GetPhase()) >=
+				static_cast<int32>(EWSEventPhase::Result));
+
+		AddInfo(FString::Printf(TEXT("SERIES %s best %.2f m over %d attempts"),
+			*Spec.Code, Harness.GameMode->GetBestMark(),
+			Harness.GameMode->GetAttemptsTaken()));
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSThrowFlowTest,
+	"WorldSports.Race.ShotPutPlaysAsASeries",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+bool FWSThrowFlowTest::RunTest(const FString&)
+{
+	// The throw through the app: a circle rather than a runway, a wind-up
+	// that peaks, and a mark in metres from a series of attempts.
+	for (const FWSThrowEventSpec& Spec : WSThrowEvents::All())
+	{
+		FRaceHarness Harness(/*bStartRace=*/false);
+		if (!TestNotNull(TEXT("game mode spawned"), Harness.GameMode))
+		{
+			return false;
+		}
+		Harness.GameMode->SelectEvent(Spec.Code);
+		TestTrue(FString::Printf(TEXT("%s is a throwing event"), *Spec.Code),
+			Harness.GameMode->IsThrowEvent());
+		TestTrue(TEXT("and a field event"), Harness.GameMode->IsFieldEvent());
+		Harness.GameMode->StartQuickPlay();
+
+		// The circle is out, and the runway furniture is not: a thrower
+		// stands in a circle, with no board to aim at and no pit to land in.
+		AWSSprintTrack* TrackActor = Harness.GameMode->GetTrack();
+		if (TestNotNull(TEXT("track spawned"), TrackActor))
+		{
+			TestTrue(FString::Printf(TEXT("%s: the circle is out"), *Spec.Code),
+				TrackActor->IsThrowCircleVisible());
+			TestEqual(FString::Printf(TEXT("%s: no board on a throwing circle"),
+					*Spec.Code),
+				TrackActor->GetBoardX(), 0.0f);
+			TestEqual(FString::Printf(TEXT("%s: no barriers either"), *Spec.Code),
+				TrackActor->GetVisibleHurdleCount(), 0);
+		}
+
+		// Release when the wind-up peaks, which is the whole event.
+		Harness.RunFor(40.0, 1.0 / 60.0, [&](double Clock)
+		{
+			if (Clock < 0.0)
+			{
+				return;
+			}
+			if (Harness.GameMode->GetThrowPower() >= 0.97f)
+			{
+				Harness.GameMode->PlayerThrowRelease();
+			}
+		});
+
+		TestEqual(FString::Printf(TEXT("%s: the whole series was taken"), *Spec.Code),
+			Harness.GameMode->GetAttemptsTaken(), Spec.Attempts);
 		TestTrue(FString::Printf(TEXT("%s: a mark was set (best %.2f m)"),
 				*Spec.Code, Harness.GameMode->GetBestMark()),
 			Harness.GameMode->GetBestMark() >= Spec.MinPlausibleMetres);

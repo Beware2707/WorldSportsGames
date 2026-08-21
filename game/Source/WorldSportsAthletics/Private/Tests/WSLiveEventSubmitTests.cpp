@@ -3,7 +3,9 @@
 #include "Misc/AutomationTest.h"
 #include "Online/WSOnlineSubsystem.h"
 #include "Progression/WSProgressionSubsystem.h"
+#include "Simulation/WSJumpSimulation.h"
 #include "Simulation/WSPaceSimulation.h"
+#include "Simulation/WSThrowSimulation.h"
 #include "Simulation/WSSprintEvents.h"
 #include "Simulation/WSSprintSimulation.h"
 #include "Sports/Results/WSEventResult.h"
@@ -89,6 +91,51 @@ FWSEventResult SimulatePacedRun(const FWSPaceEventSpec& Spec, uint32 Seed)
 	Result.Splits = Outcome.Splits;
 	Result.RngSeed = FString::Printf(TEXT("%u"), Seed);
 	Result.InputDigest = FWSMiddleDistanceSimulation::DigestTrace(Trace);
+	Result.ClientRef = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens);
+	return Result;
+}
+
+/** An honest jump: the best legal mark of a simulated series. */
+FWSEventResult SimulateJump(const FWSJumpEventSpec& Spec, uint32 Seed)
+{
+	const FWSSprintAttributes Attributes;
+	const TArray<FWSJumpInputEvent> Trace =
+		FWSJumpSimulation::GenerateAITrace(Attributes, Seed, Seed, 0.95, Spec);
+	const FWSJumpOutcome Outcome =
+		FWSJumpSimulation::RunTrace(Attributes, Seed, Trace, Spec);
+
+	FWSEventResult Result;
+	Result.EventCode = Spec.Code;
+	// METRES. The server's row says value_kind=distance and that higher is
+	// better; nothing here needs to know, because the number is the mark.
+	Result.ValueNum = Outcome.DistanceMetres;
+	Result.bHasReactionMs = false;   // no blocks on a runway
+	Result.bHasWind = true;          // a jump IS a wind-affected mark
+	Result.Wind = Outcome.Wind;
+	Result.RngSeed = FString::Printf(TEXT("%u"), Seed);
+	Result.InputDigest = FWSJumpSimulation::DigestTrace(Trace);
+	Result.ClientRef = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens);
+	return Result;
+}
+
+/** An honest throw, released at the peak of the wind-up. */
+FWSEventResult SimulateThrow(const FWSThrowEventSpec& Spec, uint32 Seed)
+{
+	const FWSSprintAttributes Attributes;
+	const TArray<FWSThrowInputEvent> Trace =
+		FWSThrowSimulation::GenerateAITrace(Attributes, Seed, Seed, 0.95, Spec);
+	const FWSThrowOutcome Outcome =
+		FWSThrowSimulation::RunTrace(Attributes, Seed, Trace, Spec);
+
+	FWSEventResult Result;
+	Result.EventCode = Spec.Code;
+	Result.ValueNum = Outcome.DistanceMetres;
+	Result.bHasReactionMs = false;
+	// No wind for throws: the sport does not record it, so claiming one
+	// would be inventing a measurement.
+	Result.bHasWind = false;
+	Result.RngSeed = FString::Printf(TEXT("%u"), Seed);
+	Result.InputDigest = FWSThrowSimulation::DigestTrace(Trace);
 	Result.ClientRef = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens);
 	return Result;
 }
@@ -203,7 +250,7 @@ bool FWSLiveLongerSprintsTest::RunTest(const FString&)
 					}
 					// No athlete yet on a fresh database: create one rather
 					// than failing a test about event submission.
-					Progression->CreateCareerAthlete(TEXT("Unreal Smoke"), TEXT("female"),
+					Progression->CreateCareerAthlete(TEXT("Unreal Smoke"), TEXT("F"),
 						[State, SubmitNext](bool bCreated, const FString& CreateError)
 						{
 							if (!bCreated)
@@ -295,7 +342,7 @@ bool FWSLiveMiddleDistanceTest::RunTest(const FString&)
 						(*SubmitNext)();
 						return;
 					}
-					Progression->CreateCareerAthlete(TEXT("Unreal Smoke"), TEXT("female"),
+					Progression->CreateCareerAthlete(TEXT("Unreal Smoke"), TEXT("F"),
 						[State, SubmitNext](bool bCreated, const FString& CreateError)
 						{
 							if (!bCreated)
@@ -307,6 +354,137 @@ bool FWSLiveMiddleDistanceTest::RunTest(const FString&)
 							}
 							(*SubmitNext)();
 						});
+				});
+		});
+
+	ADD_LATENT_AUTOMATION_COMMAND(FWSWaitForEventSubmits(State, GameInstance, this));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSLiveFieldEventsTest,
+	"LiveBackend.FieldEventMarksAccepted",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+bool FWSLiveFieldEventsTest::RunTest(const FString&)
+{
+	// The field events against the REAL server. These are the first events
+	// measured in metres and the first where higher is better, so this is
+	// the check that the distance contract holds end to end: the mark, the
+	// absent reaction, the wind a jump has and a throw does not, and the
+	// plausible band the client must never step outside.
+	UGameInstance* GameInstance = NewObject<UGameInstance>(GEngine);
+	GameInstance->AddToRoot();
+	GameInstance->InitializeStandalone();
+
+	UWSOnlineSubsystem* Online = GameInstance->GetSubsystem<UWSOnlineSubsystem>();
+	UWSProgressionSubsystem* Progression =
+		GameInstance->GetSubsystem<UWSProgressionSubsystem>();
+	if (!Online || !Progression)
+	{
+		GameInstance->RemoveFromRoot();
+		AddError(TEXT("Subsystems missing"));
+		return false;
+	}
+
+	TSharedPtr<WSLiveEventTest::FState> State = MakeShared<WSLiveEventTest::FState>();
+
+	// Every field event, jumps then throws, one honest mark each.
+	TArray<FWSEventResult> Marks;
+	for (const FWSJumpEventSpec& Spec : WSJumpEvents::All())
+	{
+		Marks.Add(WSLiveEventTest::SimulateJump(Spec, 20260822u));
+	}
+	for (const FWSThrowEventSpec& Spec : WSThrowEvents::All())
+	{
+		Marks.Add(WSLiveEventTest::SimulateThrow(Spec, 20260822u));
+	}
+
+	TSharedPtr<TFunction<void()>> SubmitNext = MakeShared<TFunction<void()>>();
+	*SubmitNext = [State, Online, Marks, SubmitNext]()
+	{
+		if (State->NextEvent >= Marks.Num())
+		{
+			State->bOk = true;
+			State->bDone = true;
+			return;
+		}
+		const FWSEventResult Run = Marks[State->NextEvent];
+		Online->SubmitResult(Run,
+			[State, Run, SubmitNext](EWSSubmitOutcome Outcome,
+				const FWSResultResponse& Response, const FString& Error)
+			{
+				if (Outcome != EWSSubmitOutcome::Accepted)
+				{
+					State->Error = FString::Printf(
+						TEXT("%s: %.2f m was not accepted — %s%s"),
+						*Run.EventCode, Run.ValueNum,
+						*Response.rejection_reason, *Error);
+					State->bDone = true;
+					return;
+				}
+				State->Report.Add(FString::Printf(
+					TEXT("LIVE %-12s %.2f m -> %s%s"),
+					*Run.EventCode, Run.ValueNum, *Response.value_text,
+					Response.is_personal_best ? TEXT(" [PB]") : TEXT("")));
+				++State->NextEvent;
+				(*SubmitNext)();
+			});
+	};
+
+	// A SEPARATE athlete from the running events.
+	//
+	// The server caps results per athlete per minute, which is exactly the
+	// rule that stops a script farming marks — and this suite grew past it:
+	// three sprints, two hurdles, two middle-distance runs, two field marks
+	// and four tournament rounds all land on one athlete inside a minute,
+	// and the server rightly refused the tail of them. Spreading the load
+	// is the fix; raising the cap would be removing an anti-cheat rule to
+	// suit a test.
+	auto Continue = [State, Progression, SubmitNext]()
+	{
+		Progression->RefreshCareerAthlete(
+			[State, Progression, SubmitNext](bool bRefreshed, const FString&)
+			{
+				if (bRefreshed && Progression->HasCareerAthlete())
+				{
+					(*SubmitNext)();
+					return;
+				}
+				Progression->CreateCareerAthlete(TEXT("Unreal Field"), TEXT("M"),
+					[State, SubmitNext](bool bCreated, const FString& CreateError)
+					{
+						if (!bCreated)
+						{
+							State->Error = FString::Printf(
+								TEXT("no career athlete: %s"), *CreateError);
+							State->bDone = true;
+							return;
+						}
+						(*SubmitNext)();
+					});
+			});
+	};
+
+	const FString Email = TEXT("unreal-field@example.com");
+	const FString Password = TEXT("unreal-field-pass-1");
+	Online->RegisterAccount(Email, Password, TEXT("Unreal Field"),
+		[State, Online, Email, Password, Continue](bool bOk, const FWSUserDto&, const FString&)
+		{
+			if (bOk)
+			{
+				Continue();
+				return;
+			}
+			// Already registered from a previous run: sign in instead.
+			Online->Login(Email, Password,
+				[State, Continue](bool bSignedIn, const FWSUserDto&, const FString& Error)
+				{
+					if (!bSignedIn)
+					{
+						State->Error = FString::Printf(TEXT("login failed: %s"), *Error);
+						State->bDone = true;
+						return;
+					}
+					Continue();
 				});
 		});
 

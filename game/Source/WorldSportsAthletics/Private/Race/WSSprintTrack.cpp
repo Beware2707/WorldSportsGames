@@ -95,6 +95,13 @@ AWSSprintTrack::AWSSprintTrack()
 	SandPit->SetMobility(EComponentMobility::Movable);
 	SandPit->SetVisibility(false);
 
+	// The throwing circle, at the start line where the athlete stands.
+	// Regulation is 2.135m across for the shot.
+	ThrowCircle = MakeBox(TEXT("ThrowCircle"), FVector(0.0f, 0.0f, 0.5f),
+		FVector(107.0f, 107.0f, 1.0f), FLinearColor(0.88f, 0.88f, 0.84f));
+	ThrowCircle->SetMobility(EComponentMobility::Movable);
+	ThrowCircle->SetVisibility(false);
+
 	// Blocks, one per lane, just behind the start line.
 	for (int32 Lane = 0; Lane < LaneCount; ++Lane)
 	{
@@ -235,6 +242,27 @@ void AWSSprintTrack::SetJumpPit(float BoardMetres, float PitLengthMetres)
 				FVector(HalfLength, LaneWidthCm * 1.4f, 3.0f) / 50.0f);
 		}
 	}
+}
+
+void AWSSprintTrack::SetThrowCircle(bool bVisible)
+{
+	if (ThrowCircle)
+	{
+		ThrowCircle->SetVisibility(bVisible);
+	}
+	// Blocks belong to a race start, not to a throwing circle.
+	for (UStaticMeshComponent* Block : StartingBlocks)
+	{
+		if (Block && bVisible)
+		{
+			Block->SetVisibility(false);
+		}
+	}
+}
+
+bool AWSSprintTrack::IsThrowCircleVisible() const
+{
+	return ThrowCircle && ThrowCircle->GetVisibleFlag();
 }
 
 float AWSSprintTrack::GetBoardX() const
