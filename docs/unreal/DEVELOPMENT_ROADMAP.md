@@ -311,6 +311,19 @@ Calibration and device testing between them found five defects:
 | A jump short of the pit scored "0.00 m" | There is no zero-metre jump; landing short of the sand is a failed attempt, and the server would refuse the mark anyway |
 | Scoring a jump crashed the editor | The field-event guard was on GetState() alone, so the standings dereferenced a simulation that never existed |
 | The HUD spoke race language | "0th --.-- (+0.0 m/s)", an "RT 0 ms" with no blocks, a board readout drawn over the main menu, and a "Replay finish" for an event with no finish |
+| The client scored marks the server refuses | Taking off ~4.5m behind the board still reaches the sand, so the client measured ~0.7m against the server's 1.00m minimum — a jump shown, counted, then refused |
+
+**Verified on the emulator, end to end:** a full series of three attempts
+reading `1. 3.17 m · 2. X over the board · 3. X over the board · Best
+3.17 m`, with the result headline showing the mark rather than a position
+and a time. Both foul kinds, the no-mark result, and a legal mark measured
+from the board have all been seen on device.
+
+**A playtest question for a human, not a defect:** the athlete reaches the
+board near 9 m/s and a jump carries about five metres, so the window that
+scores is under half a second. A green NOW cue in the last 2.2m makes it
+hittable — a real jumper knows when they are on the board rather than
+computing metres — but whether it is *fair* needs someone playing it.
 
 ### 6.6 Deliberately still open
 
