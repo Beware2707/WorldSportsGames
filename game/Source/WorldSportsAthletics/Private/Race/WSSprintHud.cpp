@@ -162,7 +162,9 @@ public:
 			// --- The jump: board countdown, series, and TAKE OFF ---------
 			+ SOverlay::Slot()
 			.HAlign(HAlign_Center).VAlign(VAlign_Bottom)
-			.Padding(0.0f, 0.0f, 0.0f, 96.0f)
+			// Above the cadence band, which the approach still uses: at the
+			// same height the two drew over each other.
+			.Padding(0.0f, 0.0f, 0.0f, 172.0f)
 			[
 				SNew(STextBlock).Font(Font(30, true))
 				.ColorAndOpacity(FLinearColor(1.0f, 0.86f, 0.35f))
@@ -175,7 +177,7 @@ public:
 			[
 				SNew(STextBlock).Font(Font(20))
 				.ColorAndOpacity(FLinearColor(0.9f, 0.9f, 0.9f))
-				.Visibility(this, &SWSSprintHudPanel::GetJumpVisibility)
+				.Visibility(this, &SWSSprintHudPanel::GetJumpSeriesVisibility)
 				.Text(this, &SWSSprintHudPanel::GetJumpSeriesText)
 			]
 			+ SOverlay::Slot()
@@ -874,8 +876,14 @@ public:
 							]
 							+ SHorizontalBox::Slot().AutoWidth().Padding(8, 0)
 							[
-								MenuButton(LOCTEXT("Replay", "Replay finish"),
-									FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnReplay), 240.0f)
+								SNew(SBox)
+								// A jump has no finish line to replay, so the
+								// button that offers one is not shown for it.
+								.Visibility(this, &SWSSprintHudPanel::GetReplayButtonVisibility)
+								[
+									MenuButton(LOCTEXT("Replay", "Replay finish"),
+										FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnReplay), 240.0f)
+								]
 							]
 							+ SHorizontalBox::Slot().AutoWidth()
 							[
@@ -948,7 +956,7 @@ private:
 		{
 			return FText::GetEmpty();
 		}
-		if (Runner->IsPaceEvent())
+		if (Runner->IsPaceEvent() || Runner->IsFieldEvent())
 		{
 			// No blocks, so no reaction was measured. Printing "RT 0 ms"
 			// would report a measurement that was never taken — the same
@@ -1110,9 +1118,30 @@ private:
 
 	EVisibility GetJumpVisibility() const
 	{
+		// Gated on a LIVE attempt, not merely on the event being selected:
+		// the board readout was showing through the main menu, and it stayed
+		// on screen reading "PAST THE BOARD" after the series was over.
 		AWSSprintGameMode* GameModePtr = Mode();
 		return GameModePtr && GameModePtr->IsJumpEvent()
+			&& GameModePtr->GetAppState() == EWSAppState::Racing
+			&& GameModePtr->GetPhase() == EWSEventPhase::Active
 			? EVisibility::HitTestInvisible : EVisibility::Collapsed;
+	}
+
+	/** The series is worth seeing while racing AND on the result. */
+	EVisibility GetJumpSeriesVisibility() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		return GameModePtr && GameModePtr->IsJumpEvent()
+			&& GameModePtr->GetAppState() == EWSAppState::Racing
+			? EVisibility::HitTestInvisible : EVisibility::Collapsed;
+	}
+
+	EVisibility GetReplayButtonVisibility() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		return GameModePtr && GameModePtr->IsJumpEvent()
+			? EVisibility::Collapsed : EVisibility::Visible;
 	}
 
 	EVisibility GetJumpButtonVisibility() const
@@ -1280,6 +1309,16 @@ private:
 		if (!Runner)
 		{
 			return FText::GetEmpty();
+		}
+		if (GameModePtr->IsJumpEvent())
+		{
+			// A field event has no finishing position and no time. Saying
+			// "0th --.--" is race language borrowed for something that is
+			// not a race; the result of a jump is a MARK.
+			const float Best = GameModePtr->GetBestMark();
+			return Best > 0.0f
+				? FText::FromString(FString::Printf(TEXT("%.2f m"), Best))
+				: LOCTEXT("NoMark", "No mark");
 		}
 		const FWSRaceOutcome Outcome = Runner->GetOutcome();
 		if (Outcome.bFalseStart)

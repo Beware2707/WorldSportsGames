@@ -208,8 +208,36 @@ bool FWSJumpFoulTest::RunTest(const FString&)
 
 		TestTrue(FString::Printf(TEXT("seed %u: overstepping is a foul"), Seed),
 			Fouled.bFoul);
+		TestTrue(FString::Printf(TEXT("seed %u: and the reason is the overstep"), Seed),
+			Fouled.bOverstepped);
 		TestEqual(FString::Printf(TEXT("seed %u: a foul has no mark"), Seed),
 			Fouled.DistanceMetres, 0.0);
+	}
+
+	// A takeoff so early the jump never reaches the pit is a FAILED
+	// attempt, not a jump of zero metres. Recording 0.00m claimed a
+	// measurement nobody took, and the server would refuse it anyway for
+	// being under the plausible minimum.
+	{
+		TArray<FWSJumpInputEvent> FarTooEarly;
+		for (int32 Index = 0; Index < 6; ++Index)
+		{
+			FWSJumpInputEvent Tap;
+			Tap.TimeSeconds = 0.12 + Index * 0.22;
+			Tap.Type = EWSJumpInputType::Tap;
+			FarTooEarly.Add(Tap);
+		}
+		FWSJumpInputEvent Early;
+		Early.TimeSeconds = 0.30; // barely off the top of the runway
+		Early.Type = EWSJumpInputType::Takeoff;
+		FarTooEarly.Add(Early);
+
+		const FWSJumpOutcome ShortOfPit =
+			FWSJumpSimulation::RunTrace(Attributes, 9u, FarTooEarly, Spec);
+		TestTrue(TEXT("a jump short of the pit is no mark"), ShortOfPit.bFoul);
+		TestFalse(TEXT("and it was not an overstep"), ShortOfPit.bOverstepped);
+		TestEqual(TEXT("no mark means no measurement"),
+			ShortOfPit.DistanceMetres, 0.0);
 	}
 
 	// Never taking off at all runs through the pit, which is also no mark.
@@ -224,6 +252,7 @@ bool FWSJumpFoulTest::RunTest(const FString&)
 	const FWSJumpOutcome RanThrough =
 		FWSJumpSimulation::RunTrace(Attributes, 11u, NeverJumps, Spec);
 	TestTrue(TEXT("running through the pit is a foul"), RanThrough.bFoul);
+	TestTrue(TEXT("recorded as going over the board"), RanThrough.bOverstepped);
 	TestEqual(TEXT("and has no mark"), RanThrough.DistanceMetres, 0.0);
 	return true;
 }

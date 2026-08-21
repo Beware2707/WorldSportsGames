@@ -156,6 +156,7 @@ void FWSJumpSimulation::ApplyEvent(const FWSJumpInputEvent& Event)
 		if (State.Distance > EventSpec.RunwayMetres)
 		{
 			Outcome.bFoul = true;
+			Outcome.bOverstepped = true;
 			Outcome.DistanceMetres = 0.0;
 			State.bFinished = true;
 			Outcome.bFinished = true;
@@ -186,7 +187,22 @@ void FWSJumpSimulation::Land()
 
 	// Every centimetre short of the board is a centimetre off the mark.
 	const double Measured = Raw - Outcome.BoardGapMetres;
-	Outcome.DistanceMetres = FMath::Max(0.0, FMath::RoundToDouble(Measured * 100.0) / 100.0);
+
+	// A jump that does not reach the pit is NOT a jump of zero metres — it
+	// is a failed attempt, exactly as it is on a real runway. Recording it
+	// as 0.00m claimed a measurement that was never taken, and the server
+	// would refuse it anyway for being below the plausible minimum.
+	if (Measured <= 0.0)
+	{
+		Outcome.bFoul = true;
+		Outcome.bOverstepped = false;
+		Outcome.DistanceMetres = 0.0;
+		State.bFinished = true;
+		Outcome.bFinished = true;
+		return;
+	}
+
+	Outcome.DistanceMetres = FMath::RoundToDouble(Measured * 100.0) / 100.0;
 	State.bFinished = true;
 	Outcome.bFinished = true;
 }
@@ -251,6 +267,7 @@ bool FWSJumpSimulation::Step()
 	if (State.Distance > EventSpec.RunwayMetres + OverrunMetres)
 	{
 		Outcome.bFoul = true;
+		Outcome.bOverstepped = true;
 		Outcome.DistanceMetres = 0.0;
 		State.bFinished = true;
 		Outcome.bFinished = true;

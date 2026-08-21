@@ -495,7 +495,8 @@ FString AWSSprintGameMode::GetAttemptSummary() const
 		// A foul is not a short jump, and writing it as 0.00 m would say it
 		// was. The scoreboard says X, because that is what happened.
 		Text += Attempts[Index].bFoul
-			? FString::Printf(TEXT("%d. X") LINE_TERMINATOR, Index + 1)
+			? FString::Printf(TEXT("%d. X  %s") LINE_TERMINATOR, Index + 1,
+				Attempts[Index].bOverstepped ? TEXT("over the board") : TEXT("short of the pit"))
 			: FString::Printf(TEXT("%d. %.2f m") LINE_TERMINATOR, Index + 1,
 				Attempts[Index].DistanceMetres);
 	}

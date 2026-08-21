@@ -137,8 +137,17 @@ struct WORLDSPORTSATHLETICS_API FWSJumpOutcome
 	UPROPERTY(BlueprintReadOnly, Category = "Jump") bool bFinished = false;
 	/** The measured mark in metres. Zero on a foul: there is no mark. */
 	UPROPERTY(BlueprintReadOnly, Category = "Jump") double DistanceMetres = 0.0;
-	/** Took off beyond the board — no mark, however far it went. */
+	/**
+	 * No mark. Either the athlete took off beyond the board, or the jump
+	 * did not reach the pit at all — both are failed attempts, and neither
+	 * is a jump of zero metres.
+	 */
 	UPROPERTY(BlueprintReadOnly, Category = "Jump") bool bFoul = false;
+
+	/** True when the no-mark was an overstep rather than a short landing.
+	 * The player is owed the difference: one is greed, the other is a
+	 * takeoff so early the jump never reached the sand. */
+	UPROPERTY(BlueprintReadOnly, Category = "Jump") bool bOverstepped = false;
 	UPROPERTY(BlueprintReadOnly, Category = "Jump") double TakeoffSpeed = 0.0;
 	/** How far behind the board the foot left the ground. Every centimetre
 	 * of it comes off the mark, because the mark is measured from the
