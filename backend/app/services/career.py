@@ -191,6 +191,36 @@ EVENTS: dict[str, CareerEvent] = {
         unit="m",
         distance_m=0.0,
     ),
+    "throw-discus": CareerEvent(
+        code="throw-discus",
+        name="Discus",
+        value_kind="distance",
+        lower_is_better=False,
+        min_plausible=5.00,
+        max_plausible=75.00,         # the world record is 74.08
+        governing_attributes=("acceleration", "max_speed", "technique"),
+        ceiling_at_zero=12.00,
+        ceiling_at_hundred=73.00,
+        splits_expected=0,
+        requires_reaction=False,
+        unit="m",
+        distance_m=0.0,
+    ),
+    "throw-javelin": CareerEvent(
+        code="throw-javelin",
+        name="Javelin",
+        value_kind="distance",
+        lower_is_better=False,
+        min_plausible=5.00,
+        max_plausible=100.00,        # the world record is 98.48
+        governing_attributes=("acceleration", "max_speed", "technique"),
+        ceiling_at_zero=15.00,
+        ceiling_at_hundred=97.00,
+        splits_expected=0,
+        requires_reaction=False,
+        unit="m",
+        distance_m=0.0,
+    ),
     # --- Middle distance -------------------------------------------------
     # A different KIND of event, not a longer sprint. There are no blocks and
     # so no reaction to measure (requires_reaction=False), and no wind is

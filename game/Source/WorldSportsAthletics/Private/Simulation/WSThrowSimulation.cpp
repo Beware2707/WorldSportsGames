@@ -46,6 +46,52 @@ const TArray<FWSThrowEventSpec>& All()
 			TEXT("acceleration"), TEXT("max_speed"), TEXT("technique")};
 		Table.Add(Shot);
 
+		// Discus and javelin are ROWS, not code. Both are a wind-up and a
+		// release from a circle or runway; what differs is how far the
+		// implement carries, which is a handful of numbers. The effective
+		// release speeds are higher than a shot's because both implements
+		// fly rather than fall — a projectile model with no lift needs the
+		// speed to stand in for the aerodynamics.
+		FWSThrowEventSpec Discus;
+		Discus.Code = TEXT("throw-discus");
+		Discus.DisplayName = TEXT("Discus");
+		Discus.Attempts = 3;
+		Discus.CeilingAtZero = 12.00;
+		Discus.CeilingAtHundred = 73.00;
+		Discus.MinPlausibleMetres = 5.00;
+		Discus.MaxPlausibleMetres = 75.00;
+		Discus.WindUpSeconds = 2.60;   // a longer turn than the shot
+		Discus.PeakFraction = 0.75;
+		Discus.SpeedAtZero = 10.30;
+		Discus.SpeedAtHundred = 26.70;
+		Discus.TopSpeedCurve = 0.72;
+		Discus.AngleAtZeroTechnique = 30.0;
+		Discus.AngleAtFullTechnique = 37.0;
+		Discus.ReleaseHeightMetres = 1.60;
+		Discus.GoverningAttributes = {
+			TEXT("acceleration"), TEXT("max_speed"), TEXT("technique")};
+		Table.Add(Discus);
+
+		FWSThrowEventSpec Javelin;
+		Javelin.Code = TEXT("throw-javelin");
+		Javelin.DisplayName = TEXT("Javelin");
+		Javelin.Attempts = 3;
+		Javelin.CeilingAtZero = 15.00;
+		Javelin.CeilingAtHundred = 97.00;
+		Javelin.MinPlausibleMetres = 5.00;
+		Javelin.MaxPlausibleMetres = 100.00;
+		Javelin.WindUpSeconds = 2.10;  // a run-up and a fast arm
+		Javelin.PeakFraction = 0.78;
+		Javelin.SpeedAtZero = 11.60;
+		Javelin.SpeedAtHundred = 30.90;
+		Javelin.TopSpeedCurve = 0.72;
+		Javelin.AngleAtZeroTechnique = 31.0;
+		Javelin.AngleAtFullTechnique = 36.0;
+		Javelin.ReleaseHeightMetres = 1.90;
+		Javelin.GoverningAttributes = {
+			TEXT("acceleration"), TEXT("max_speed"), TEXT("technique")};
+		Table.Add(Javelin);
+
 		return Table;
 	}();
 	return Events;
