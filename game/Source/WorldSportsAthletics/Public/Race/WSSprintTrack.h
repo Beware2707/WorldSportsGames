@@ -126,4 +126,8 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UStaticMeshComponent> SandPit;
+
+	/** Starting blocks: a race has them, a runway does not. */
+	UPROPERTY()
+	TArray<TObjectPtr<UStaticMeshComponent>> StartingBlocks;
 };

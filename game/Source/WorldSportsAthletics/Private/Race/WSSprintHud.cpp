@@ -167,7 +167,7 @@ public:
 			.Padding(0.0f, 0.0f, 0.0f, 172.0f)
 			[
 				SNew(STextBlock).Font(Font(30, true))
-				.ColorAndOpacity(FLinearColor(1.0f, 0.86f, 0.35f))
+				.ColorAndOpacity(this, &SWSSprintHudPanel::GetJumpTextColour)
 				.Visibility(this, &SWSSprintHudPanel::GetJumpVisibility)
 				.Text(this, &SWSSprintHudPanel::GetJumpText)
 			]
@@ -914,6 +914,17 @@ private:
 		{
 			return FText::GetEmpty();
 		}
+		if (GameModePtr->IsJumpEvent())
+		{
+			// A jump has no time, so the race clock has nothing to say. It
+			// showed the approach's elapsed seconds and then "--.--" once
+			// the series ended, which reads as a missing time rather than
+			// as an event that never had one. The mark takes its place.
+			const float Best = GameModePtr->GetBestMark();
+			return Best > 0.0f
+				? FText::FromString(FString::Printf(TEXT("%.2f m"), Best))
+				: FText::GetEmpty();
+		}
 		const double Clock = GameModePtr->GetRaceClock();
 		if (Clock < 0.0)
 		{
@@ -1111,9 +1122,33 @@ private:
 		{
 			return LOCTEXT("PastBoard", "PAST THE BOARD");
 		}
+		if (ToBoard <= 2.2f)
+		{
+			// The window that actually scores is under half a second wide:
+			// the athlete arrives at the board near 9 m/s, and a jump only
+			// carries about five metres, so every metre left behind comes
+			// straight off the mark and enough of them means no mark at
+			// all. A bare countdown asks the player to do arithmetic at
+			// speed; a real jumper simply knows they are on the board.
+			return LOCTEXT("TakeOffNow", "NOW");
+		}
 		// Metres, because the mark is measured in metres from the board and
 		// the takeoff is judged the same way.
 		return FText::FromString(FString::Printf(TEXT("BOARD  %.1f m"), ToBoard));
+	}
+
+	/** The takeoff cue goes green in the window that scores. */
+	FSlateColor GetJumpTextColour() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		if (!GameModePtr || !GameModePtr->IsJumpEvent())
+		{
+			return FSlateColor(FLinearColor::White);
+		}
+		const float ToBoard = GameModePtr->GetMetresToBoard();
+		return ToBoard >= 0.0f && ToBoard <= 2.2f
+			? FSlateColor(FLinearColor(0.35f, 1.0f, 0.45f))
+			: FSlateColor(FLinearColor(1.0f, 0.86f, 0.35f));
 	}
 
 	EVisibility GetJumpVisibility() const

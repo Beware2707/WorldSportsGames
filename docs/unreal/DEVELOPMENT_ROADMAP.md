@@ -290,10 +290,27 @@ distance, printing a jump of 8.90 m as "8.9". Athletics reports marks to the
 centimetre and keeps the trailing zero; the difference is two marks a
 centimetre apart reading as the same number.
 
-**Client side is not built yet.** A jump needs an approach run, a takeoff
-board with a foul line, and a flight — a genuinely different input model
-from both the sprint and the paced events, and a result in metres rather
-than seconds.
+**Built and playable.** A third event kind, earned by being three things in
+sequence: an approach that is a sprint (and reuses the cadence skill), a
+takeoff judged against a board, and a flight the player no longer controls.
+A field event does not go through the race path at all — there is no
+eight-lane field to keep in step with and no gun to react to, so the game
+mode owns the simulation and drives the athlete directly.
+
+The board is the event. The mark is measured FROM THE BOARD, so every
+centimetre short of it comes off the jump while a single centimetre past it
+is no mark at all. Three attempts; only the best legal one is submitted;
+three fouls submit nothing, because a zero would be recorded as a jump.
+
+Calibration and device testing between them found five defects:
+
+| Defect | Why it mattered |
+|---|---|
+| A flawless approach fouled every time | Aiming at exactly the board overshoots it within one step; real jumpers aim short and use check marks |
+| Mid-range could not reach its ceiling | Distance goes as the SQUARE of speed while the ceiling is linear, so the speed curve needs an exponent BELOW 1.0 — the mirror of the sprints' sag |
+| A jump short of the pit scored "0.00 m" | There is no zero-metre jump; landing short of the sand is a failed attempt, and the server would refuse the mark anyway |
+| Scoring a jump crashed the editor | The field-event guard was on GetState() alone, so the standings dereferenced a simulation that never existed |
+| The HUD spoke race language | "0th --.-- (+0.0 m/s)", an "RT 0 ms" with no blocks, a board readout drawn over the main menu, and a "Replay finish" for an event with no finish |
 
 ### 6.6 Deliberately still open
 

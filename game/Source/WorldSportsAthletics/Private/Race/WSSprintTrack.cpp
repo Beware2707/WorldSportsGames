@@ -98,10 +98,12 @@ AWSSprintTrack::AWSSprintTrack()
 	// Blocks, one per lane, just behind the start line.
 	for (int32 Lane = 0; Lane < LaneCount; ++Lane)
 	{
-		MakeBox(*FString::Printf(TEXT("Blocks%d"), Lane),
+		UStaticMeshComponent* Block = MakeBox(*FString::Printf(TEXT("Blocks%d"), Lane),
 			FVector(-45.0f, LaneCenterY(Lane), 6.0f),
 			FVector(25.0f, 20.0f, 6.0f),
 			FLinearColor(0.05f, 0.15f, 0.45f));
+		Block->SetMobility(EComponentMobility::Movable);
+		StartingBlocks.Add(Block);
 	}
 
 	// Backdrop walls instead of a sky atmosphere: SkyAtmosphere needs a sky
@@ -198,6 +200,15 @@ void AWSSprintTrack::SetHurdles(int32 Count, float FirstMetres, float SpacingMet
 void AWSSprintTrack::SetJumpPit(float BoardMetres, float PitLengthMetres)
 {
 	const bool bJumping = BoardMetres > 0.0f;
+	// Blocks are for a race start. Leaving them on a jumping runway said
+	// the athlete starts from blocks, which no jumper does.
+	for (UStaticMeshComponent* Block : StartingBlocks)
+	{
+		if (Block)
+		{
+			Block->SetVisibility(!bJumping);
+		}
+	}
 	const float BoardX = BoardMetres * 100.0f;
 	if (TakeoffBoard)
 	{
