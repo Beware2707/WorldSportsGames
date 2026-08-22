@@ -42,7 +42,10 @@ public:
 	 * same defect the 400m had against a 100m track.
 	 * WSSprintTrackTests asserts this against both event tables.
 	 */
-	static constexpr float MaxTrackLengthCm = 150000.0f; // 1500 m
+	// 1600 m: the 4x400 relay is the longest thing raced on this straight,
+	// and it is longer than any individual event. A test reads every event
+	// table and fails here if one outruns it.
+	static constexpr float MaxTrackLengthCm = 160000.0f; // 1600 m
 	static constexpr float ApronCm = 900.0f;       // run-out after the line
 	/** How many distance markers exist; the race uses as many as it needs. */
 	static constexpr int32 MaxDistanceMarks = 10;
@@ -81,9 +84,34 @@ public:
 	/** Put out the throwing circle, or take it away. A throw happens in one
 	 * place, and a circle the player cannot see is a rule they cannot
 	 * read — the same mistake as hurdles with no barriers. */
-	void SetThrowCircle(bool bVisible);
+	void SetThrowCircle(bool bVisible, bool bCircle = true);
 
 	bool IsThrowCircleVisible() const;
+
+	/** True when the javelin's foul arc is laid out instead of a circle. */
+	bool IsThrowArcVisible() const;
+
+	/**
+	 * Raise the crossbar for a vertical jump, or take it away with a bar of
+	 * zero. The bar is the whole point of a high jump — an event where the
+	 * player cannot see what they are trying to clear is one they are
+	 * playing blind, the same mistake as hurdles with no barriers.
+	 */
+	void SetHighJumpBar(float BoardMetres, float BarMetres);
+
+	/** How high the bar currently sits, in cm; 0 when it is not out. */
+	float GetBarHeightCm() const;
+
+	/**
+	 * Paint the takeover zones for a relay, or clear them with a count of
+	 * zero. A zone the player cannot see is a rule they cannot read — the
+	 * same mistake as hurdles with no barriers, and it decides the race.
+	 */
+	void SetTakeoverZones(int32 LegCount, float LegMetres, float ZoneMetres);
+
+	/** How many zones are painted, and where each one ENDS, in cm. */
+	int32 GetVisibleZoneCount() const;
+	TArray<float> GetVisibleZoneEnds() const;
 
 	/** How many barriers are currently standing, for tests. */
 	int32 GetVisibleHurdleCount() const;
@@ -136,6 +164,32 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UStaticMeshComponent> ThrowCircle;
+
+	/** The javelin's foul arc: a line across a runway, not a ring. */
+	UPROPERTY()
+	TObjectPtr<UStaticMeshComponent> ThrowArc;
+
+	/** Takeover zones: a painted band and the line that closes it. Three
+	 * per relay, one before each handover. */
+	static constexpr int32 MaxTakeoverZones = 3;
+
+	UPROPERTY()
+	TArray<TObjectPtr<UStaticMeshComponent>> TakeoverBands;
+
+	UPROPERTY()
+	TArray<TObjectPtr<UStaticMeshComponent>> TakeoverLines;
+
+	int32 PaintedZones = 0;
+
+	/** The crossbar and its two uprights, for the vertical jumps. */
+	UPROPERTY()
+	TObjectPtr<UStaticMeshComponent> CrossBar;
+
+	UPROPERTY()
+	TArray<TObjectPtr<UStaticMeshComponent>> BarUprights;
+
+	UPROPERTY()
+	TObjectPtr<UStaticMeshComponent> LandingMat;
 
 	/** Starting blocks: a race has them, a runway does not. */
 	UPROPERTY()

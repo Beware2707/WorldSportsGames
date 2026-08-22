@@ -53,6 +53,22 @@ is where the Android-only compile errors show up); use UAT to get an APK.
 
 ### UBT replays a CACHED environment
 
+**Do not edit sources while a package is running.** UAT compiles first and
+cooks second, so an edit landing between the two produces a half-built
+module — and the failure is not the edit. It came back as
+`error: null character ignored [-Werror,-Wnull-character]` in the engine's
+shared PCH and in a generated `Definitions.*.h`, neither of which had a
+null character in it by the time the run ended. Rerunning the package with
+no other change fixes it; hunting the null character does not.
+
+**Do not export `JAVA_HOME` before packaging.** It is already set as a user
+environment variable and pointing at the right JDK. Setting it "helpfully"
+from a shell means typing the patch version from memory, and one wrong
+digit takes the whole run five minutes to the Gradle step before failing
+with `JAVA_HOME is set to an invalid directory` — long after the compile
+and cook have succeeded, and with a stale APK still sitting on disk to make
+the failure look like success.
+
 UnrealBuildTool captures env vars (`JAVA_HOME`, `ANDROID_HOME`, `NDKROOT`)
 into `game/Intermediate/Build/<Platform>/…/Makefile.bin` and hands that
 captured copy to child processes. A JAVA_HOME that was wrong once therefore

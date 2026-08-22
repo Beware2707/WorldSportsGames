@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "Simulation/WSPaceSimulation.h"
+#include "Simulation/WSRelaySimulation.h"
 #include "Simulation/WSSprintSimulation.h"
 
 #include "WSSprintRunner.generated.h"
@@ -40,6 +41,13 @@ public:
 		int32 InLaneIndex, const FString& InDisplayName, bool bInIsPlayer,
 		const FWSPaceEventSpec& InPaceSpec);
 
+	/** Create this runner's RELAY simulation instead. A relay runner is one
+	 * actor standing in for a team of four: the simulation runs all four
+	 * legs and the three handovers between them. */
+	void InitializeRelayRace(const FWSSprintAttributes& InAttributes, uint32 Seed,
+		int32 InLaneIndex, const FString& InDisplayName, bool bInIsPlayer,
+		const FWSRelayEventSpec& InRelaySpec);
+
 	/** Queue an input event (player taps, or a pre-generated AI trace). */
 	void PushInput(const FWSSprintInputEvent& Event);
 	void PushTrace(const TArray<FWSSprintInputEvent>& Trace);
@@ -49,6 +57,16 @@ public:
 	void PushPaceTrace(const TArray<FWSPaceInputEvent>& Trace);
 
 	bool IsPaceEvent() const { return PaceSimulation.IsValid(); }
+
+	/** The relay equivalents: cadence, the gun, and the baton. */
+	void PushRelayInput(const FWSRelayInputEvent& Event);
+	void PushRelayTrace(const TArray<FWSRelayInputEvent>& Trace);
+
+	bool IsRelayEvent() const { return RelaySimulation.IsValid(); }
+
+	/** Live relay state, for the HUD's leg and takeover-zone readouts.
+	 * Only meaningful when IsRelayEvent(). */
+	const FWSRelayState& GetRelayState() const;
 
 	/**
 	 * Drive the visual directly, for a FIELD event.
@@ -60,7 +78,8 @@ public:
 	 * from here — it is presentation only.
 	 */
 	void DriveVisual(int32 InLaneIndex, const FString& InDisplayName,
-		double DistanceMetres, double SpeedMetresPerSecond, bool bAirborne);
+		double DistanceMetres, double SpeedMetresPerSecond, bool bAirborne,
+		double HeightMetres = 0.0);
 
 	bool IsFieldEvent() const { return bFieldEvent; }
 
@@ -129,19 +148,26 @@ private:
 	void UpdateVisual(double RaceTime);
 	void ApplyKitColour();
 	void ProjectPaceState();
+	void ProjectRelayState();
 
 	/** Exactly one of these is valid: the event decides which. */
 	TSharedPtr<FWSSprintSimulation> Simulation;
 	TSharedPtr<FWSMiddleDistanceSimulation> PaceSimulation;
+	TSharedPtr<FWSRelaySimulation> RelaySimulation;
 	double SimulatedTime = 0.0;
 
 	/** Middle-distance state projected into the shared race state, so the
 	 * HUD, camera and standings have one shape to read. */
 	FWSRaceState PaceProjectedState;
+	FWSRaceState RelayProjectedState;
 
 	/** Field events drive the visual from outside; there is no simulation
 	 * on this actor to read a state from. */
 	bool bFieldEvent = false;
+
+	/** How high off the ground a field-event athlete currently is, in
+	 * metres. Driven by the simulation; never fed back into it. */
+	double FieldHeightMetres = 0.0;
 	FWSRaceState FieldState;
 
 	UPROPERTY()

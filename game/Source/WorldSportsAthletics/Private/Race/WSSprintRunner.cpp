@@ -99,6 +99,58 @@ void AWSSprintRunner::InitializePaceRace(const FWSSprintAttributes& InAttributes
 	ApplyKitColour();
 }
 
+void AWSSprintRunner::InitializeRelayRace(const FWSSprintAttributes& InAttributes,
+	uint32 Seed, int32 InLaneIndex, const FString& InDisplayName, bool bInIsPlayer,
+	const FWSRelayEventSpec& InRelaySpec)
+{
+	LaneIndex = InLaneIndex;
+	DisplayName = InDisplayName;
+	bIsPlayer = bInIsPlayer;
+	RelaySimulation = MakeShared<FWSRelaySimulation>(InAttributes, Seed, InRelaySpec);
+	SimulatedTime = RelaySimulation->GetState().RaceTime;
+	ApplyKitColour();
+	SetActorLocation(FVector(-40.0f, AWSSprintTrack::LaneCenterY(LaneIndex), 0.0f));
+}
+
+void AWSSprintRunner::PushRelayInput(const FWSRelayInputEvent& Event)
+{
+	if (RelaySimulation.IsValid())
+	{
+		RelaySimulation->AddInput(Event);
+	}
+}
+
+void AWSSprintRunner::PushRelayTrace(const TArray<FWSRelayInputEvent>& Trace)
+{
+	for (const FWSRelayInputEvent& Event : Trace)
+	{
+		PushRelayInput(Event);
+	}
+}
+
+const FWSRelayState& AWSSprintRunner::GetRelayState() const
+{
+	static const FWSRelayState Empty;
+	return RelaySimulation.IsValid() ? RelaySimulation->GetState() : Empty;
+}
+
+void AWSSprintRunner::ProjectRelayState()
+{
+	// One race state for the whole game, as the paced events do: the HUD,
+	// camera and standings read the same shape whatever is running.
+	const FWSRelayState& Relay = RelaySimulation->GetState();
+	RelayProjectedState.RaceTime = Relay.RaceTime;
+	RelayProjectedState.Distance = Relay.Distance;
+	RelayProjectedState.Speed = Relay.Speed;
+	RelayProjectedState.Fatigue = Relay.Fatigue;
+	RelayProjectedState.bReleased = Relay.bReleased;
+	RelayProjectedState.bFinished = Relay.bFinished;
+	RelayProjectedState.bFalseStart = Relay.bFalseStart;
+	RelayProjectedState.CadenceAccuracy = Relay.CadenceAccuracy;
+	RelayProjectedState.TargetCadenceHz = Relay.TargetCadenceHz;
+	RelayProjectedState.ActualCadenceHz = Relay.ActualCadenceHz;
+}
+
 void AWSSprintRunner::PushPaceInput(const FWSPaceInputEvent& Event)
 {
 	if (PaceSimulation.IsValid())
@@ -122,8 +174,13 @@ const FWSPaceState& AWSSprintRunner::GetPaceState() const
 }
 
 void AWSSprintRunner::DriveVisual(int32 InLaneIndex, const FString& InDisplayName,
-	double DistanceMetres, double SpeedMetresPerSecond, bool bAirborne)
+	double DistanceMetres, double SpeedMetresPerSecond, bool bAirborne,
+	double HeightMetres)
 {
+	// A jumper who never leaves the ground is a runner. The arc is the
+	// simulation's, not the visual's invention: it rises to the height the
+	// attempt actually reached.
+	FieldHeightMetres = HeightMetres;
 	bFieldEvent = true;
 	bIsPlayer = true;
 	LaneIndex = InLaneIndex;
@@ -150,6 +207,10 @@ const FWSRaceState& AWSSprintRunner::GetState() const
 	{
 		return PaceProjectedState;
 	}
+	if (RelaySimulation.IsValid())
+	{
+		return RelayProjectedState;
+	}
 	return Simulation->GetState();
 }
 
@@ -165,6 +226,22 @@ FWSRaceOutcome AWSSprintRunner::GetOutcome() const
 	if (ScriptedFinishSeconds > 0.0)
 	{
 		return ScriptedOutcome;
+	}
+	if (RelaySimulation.IsValid())
+	{
+		const FWSRelayOutcome Relay = RelaySimulation->GetOutcome();
+		FWSRaceOutcome Outcome;
+		// A disqualified team has no time, and listing one would be a
+		// fabricated result — the same rule a false start already follows.
+		Outcome.bFinished = Relay.bFinished && !Relay.bBadExchange;
+		Outcome.TimeSeconds = Relay.bBadExchange ? 0.0 : Relay.TimeSeconds;
+		Outcome.Splits = Relay.Splits;
+		Outcome.ReactionMs = Relay.ReactionMs;
+		Outcome.bFalseStart = Relay.bFalseStart;
+		Outcome.bBadExchange = Relay.bBadExchange;
+		// No wind is recorded for a relay, so none is reported.
+		Outcome.Wind = 0.0;
+		return Outcome;
 	}
 	if (PaceSimulation.IsValid())
 	{
@@ -193,6 +270,11 @@ double AWSSprintRunner::GetSplitSegmentMetres() const
 		const FWSPaceEventSpec& Spec = PaceSimulation->GetEvent();
 		return Spec.SplitCount > 0 ? Spec.DistanceMetres / Spec.SplitCount : Spec.DistanceMetres;
 	}
+	if (RelaySimulation.IsValid())
+	{
+		// A relay's splits are its LEGS, not marks down the track.
+		return RelaySimulation->GetEvent().LegMetres;
+	}
 	if (!Simulation.IsValid() || Simulation->GetEvent().SplitCount <= 0)
 	{
 		return 10.0;
@@ -209,6 +291,12 @@ double AWSSprintRunner::GetRaceDistance() const
 	if (PaceSimulation.IsValid())
 	{
 		return PaceSimulation->GetRaceDistance();
+	}
+	if (RelaySimulation.IsValid())
+	{
+		// All four legs: a relay runner covers the whole distance the team
+		// does, because one actor stands in for the team.
+		return RelaySimulation->GetEvent().TotalMetres();
 	}
 	return Simulation.IsValid() ? Simulation->GetRaceDistance() : ScriptedDistanceMetres;
 }
@@ -293,6 +381,25 @@ void AWSSprintRunner::AdvanceTo(double RaceTime)
 		UpdateVisual(RaceTime);
 		return;
 	}
+	if (RelaySimulation.IsValid())
+	{
+		// The same bigger cap a paced race needs: a 4x400 is minutes long,
+		// and a 64-step ceiling would let the simulation fall permanently
+		// behind the clock it is being timed against.
+		int32 Steps = 0;
+		while (SimulatedTime < RaceTime && Steps < 512)
+		{
+			if (!RelaySimulation->Step())
+			{
+				break;
+			}
+			SimulatedTime = RelaySimulation->GetState().RaceTime;
+			++Steps;
+		}
+		ProjectRelayState();
+		UpdateVisual(RaceTime);
+		return;
+	}
 	if (!Simulation.IsValid())
 	{
 		return;
@@ -342,7 +449,8 @@ void AWSSprintRunner::UpdateVisual(double RaceTime)
 		? FMath::Clamp(28.0f - static_cast<float>(State.Distance) * 0.9f, 0.0f, 28.0f)
 		: 42.0f; // crouched in the blocks
 
-	SetActorLocation(FVector(X, AWSSprintTrack::LaneCenterY(LaneIndex), Bob));
+	SetActorLocation(FVector(X, AWSSprintTrack::LaneCenterY(LaneIndex),
+		Bob + static_cast<float>(FieldHeightMetres) * 100.0f));
 	SetActorRotation(FRotator(0.0f, 0.0f, 0.0f));
 	Body->SetRelativeRotation(FRotator(-Lean, 0.0f, 0.0f));
 	Head->SetRelativeLocation(FVector(

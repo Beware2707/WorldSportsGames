@@ -5,6 +5,7 @@
 #include "Progression/WSProgressionSubsystem.h"
 #include "Simulation/WSJumpSimulation.h"
 #include "Simulation/WSPaceSimulation.h"
+#include "Simulation/WSRelaySimulation.h"
 #include "Simulation/WSThrowSimulation.h"
 #include "Simulation/WSSprintEvents.h"
 #include "Simulation/WSSprintSimulation.h"
@@ -95,14 +96,64 @@ FWSEventResult SimulatePacedRun(const FWSPaceEventSpec& Spec, uint32 Seed)
 	return Result;
 }
 
+/** An honest relay: four legs, three handovers, one clock. */
+FWSEventResult SimulateRelay(const FWSRelayEventSpec& Spec, uint32 Seed)
+{
+	const FWSSprintAttributes Attributes;
+	const TArray<FWSRelayInputEvent> Trace =
+		FWSRelaySimulation::GenerateAITrace(Attributes, Seed, Seed,
+			/*ReactionMeanMs=*/175.0, /*Spread=*/0.0, /*Consistency=*/0.95, Spec);
+	const FWSRelayOutcome Outcome =
+		FWSRelaySimulation::RunTrace(Attributes, Seed, Trace, Spec);
+
+	FWSEventResult Result;
+	Result.EventCode = Spec.Code;
+	Result.ValueNum = Outcome.TimeSeconds;
+	// A relay DOES start from blocks off a gun, so a reaction is measured
+	// and sent. Wind is not: World Athletics records it for the 100m, the
+	// 200m and the horizontal jumps, and a relay is none of those.
+	Result.bHasReactionMs = true;
+	Result.ReactionMs = Outcome.ReactionMs;
+	Result.bHasWind = false;
+	Result.Splits = Outcome.Splits;
+	Result.RngSeed = FString::Printf(TEXT("%u"), Seed);
+	Result.InputDigest = FWSRelaySimulation::DigestTrace(Trace);
+	Result.ClientRef = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens);
+	return Result;
+}
+
 /** An honest jump: the best legal mark of a simulated series. */
 FWSEventResult SimulateJump(const FWSJumpEventSpec& Spec, uint32 Seed)
 {
 	const FWSSprintAttributes Attributes;
-	const TArray<FWSJumpInputEvent> Trace =
-		FWSJumpSimulation::GenerateAITrace(Attributes, Seed, Seed, 0.95, Spec);
-	const FWSJumpOutcome Outcome =
-		FWSJumpSimulation::RunTrace(Attributes, Seed, Trace, Spec);
+	FWSJumpEventSpec Attempt = Spec;
+	TArray<FWSJumpInputEvent> Trace =
+		FWSJumpSimulation::GenerateAITrace(Attributes, Seed, Seed, 0.95, Attempt);
+	FWSJumpOutcome Outcome =
+		FWSJumpSimulation::RunTrace(Attributes, Seed, Trace, Attempt);
+
+	if (Spec.bVertical)
+	{
+		// A vertical jump's mark is the highest bar CLEARED, so the honest
+		// result is the one the ladder arrives at — not a single attempt
+		// against a bar of nothing, which would submit a mark of zero.
+		double Cleared = 0.0;
+		for (double Bar = Spec.StartBarMetres; Bar <= Spec.MaxPlausibleMetres;
+			Bar += Spec.BarIncrementMetres)
+		{
+			Attempt.BarMetres = Bar;
+			Trace = FWSJumpSimulation::GenerateAITrace(Attributes, Seed, Seed, 0.95, Attempt);
+			const FWSJumpOutcome Try =
+				FWSJumpSimulation::RunTrace(Attributes, Seed, Trace, Attempt);
+			if (!Try.bCleared)
+			{
+				break;
+			}
+			Cleared = Bar;
+			Outcome = Try;
+		}
+		Outcome.DistanceMetres = Cleared;
+	}
 
 	FWSEventResult Result;
 	Result.EventCode = Spec.Code;
@@ -110,7 +161,10 @@ FWSEventResult SimulateJump(const FWSJumpEventSpec& Spec, uint32 Seed)
 	// better; nothing here needs to know, because the number is the mark.
 	Result.ValueNum = Outcome.DistanceMetres;
 	Result.bHasReactionMs = false;   // no blocks on a runway
-	Result.bHasWind = true;          // a jump IS a wind-affected mark
+	// World Athletics records wind for the HORIZONTAL jumps only: a high
+	// jump mark carries no wind reading, so claiming one would invent a
+	// measurement the sport never takes.
+	Result.bHasWind = !Spec.bVertical;
 	Result.Wind = Outcome.Wind;
 	Result.RngSeed = FString::Printf(TEXT("%u"), Seed);
 	Result.InputDigest = FWSJumpSimulation::DigestTrace(Trace);
@@ -467,6 +521,132 @@ bool FWSLiveFieldEventsTest::RunTest(const FString&)
 	const FString Email = TEXT("unreal-field@example.com");
 	const FString Password = TEXT("unreal-field-pass-1");
 	Online->RegisterAccount(Email, Password, TEXT("Unreal Field"),
+		[State, Online, Email, Password, Continue](bool bOk, const FWSUserDto&, const FString&)
+		{
+			if (bOk)
+			{
+				Continue();
+				return;
+			}
+			// Already registered from a previous run: sign in instead.
+			Online->Login(Email, Password,
+				[State, Continue](bool bSignedIn, const FWSUserDto&, const FString& Error)
+				{
+					if (!bSignedIn)
+					{
+						State->Error = FString::Printf(TEXT("login failed: %s"), *Error);
+						State->bDone = true;
+						return;
+					}
+					Continue();
+				});
+		});
+
+	ADD_LATENT_AUTOMATION_COMMAND(FWSWaitForEventSubmits(State, GameInstance, this));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSLiveRelayTest,
+	"LiveBackend.RelayTeamTimesAccepted",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+bool FWSLiveRelayTest::RunTest(const FString&)
+{
+	// The relays against the REAL server. What is new here is a time whose
+	// splits are LEGS rather than marks down the track, and a timed event
+	// that reports a reaction but no wind — so this is the check that the
+	// contract holds for both at once.
+	UGameInstance* GameInstance = NewObject<UGameInstance>(GEngine);
+	GameInstance->AddToRoot();
+	GameInstance->InitializeStandalone();
+
+	UWSOnlineSubsystem* Online = GameInstance->GetSubsystem<UWSOnlineSubsystem>();
+	UWSProgressionSubsystem* Progression =
+		GameInstance->GetSubsystem<UWSProgressionSubsystem>();
+	if (!Online || !Progression)
+	{
+		GameInstance->RemoveFromRoot();
+		AddError(TEXT("Subsystems missing"));
+		return false;
+	}
+
+	TSharedPtr<WSLiveEventTest::FState> State = MakeShared<WSLiveEventTest::FState>();
+
+	TSharedPtr<TFunction<void()>> SubmitNext = MakeShared<TFunction<void()>>();
+	*SubmitNext = [State, Online, SubmitNext]()
+	{
+		const TArray<FWSRelayEventSpec>& Table = WSRelayEvents::All();
+		if (State->NextEvent >= Table.Num())
+		{
+			State->bOk = true;
+			State->bDone = true;
+			return;
+		}
+		const FWSRelayEventSpec& Spec = Table[State->NextEvent];
+		const FWSEventResult Run = WSLiveEventTest::SimulateRelay(Spec, 20260822u);
+		if (Run.ValueNum <= 0.0)
+		{
+			State->Error = FString::Printf(
+				TEXT("%s: the simulated team was disqualified, so there is "
+					 "nothing to submit"), *Spec.Code);
+			State->bDone = true;
+			return;
+		}
+
+		Online->SubmitResult(Run,
+			[State, Spec, Run, SubmitNext](EWSSubmitOutcome Outcome,
+				const FWSResultResponse& Response, const FString& Error)
+			{
+				if (Outcome != EWSSubmitOutcome::Accepted)
+				{
+					State->Error = FString::Printf(
+						TEXT("%s: %.3fs with %d legs was not accepted — %s%s"),
+						*Spec.Code, Run.ValueNum, Run.Splits.Num(),
+						*Response.rejection_reason, *Error);
+					State->bDone = true;
+					return;
+				}
+				State->Report.Add(FString::Printf(
+					TEXT("LIVE %-13s %.3fs (%d legs, reaction %.0fms, no wind) -> %s%s"),
+					*Spec.Code, Run.ValueNum, Run.Splits.Num(), Run.ReactionMs,
+					*Response.value_text,
+					Response.is_personal_best ? TEXT(" [PB]") : TEXT("")));
+				++State->NextEvent;
+				(*SubmitNext)();
+			});
+	};
+
+	// A THIRD athlete. The server caps results per athlete per minute, and
+	// that rule is what stops a script farming times — spreading the suite
+	// across accounts is the fix, never widening the cap.
+	const FString Email = TEXT("unreal-relay@example.com");
+	const FString Password = TEXT("unreal-relay-pass-1");
+
+	auto Continue = [State, Progression, SubmitNext]()
+	{
+		Progression->RefreshCareerAthlete(
+			[State, Progression, SubmitNext](bool bRefreshed, const FString&)
+			{
+				if (bRefreshed && Progression->HasCareerAthlete())
+				{
+					(*SubmitNext)();
+					return;
+				}
+				Progression->CreateCareerAthlete(TEXT("Unreal Relay"), TEXT("X"),
+					[State, SubmitNext](bool bCreated, const FString& CreateError)
+					{
+						if (!bCreated)
+						{
+							State->Error = FString::Printf(
+								TEXT("no career athlete: %s"), *CreateError);
+							State->bDone = true;
+							return;
+						}
+						(*SubmitNext)();
+					});
+			});
+	};
+
+	Online->RegisterAccount(Email, Password, TEXT("Unreal Relay"),
 		[State, Online, Email, Password, Continue](bool bOk, const FWSUserDto&, const FString&)
 		{
 			if (bOk)

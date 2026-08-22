@@ -169,6 +169,95 @@ EVENTS: dict[str, CareerEvent] = {
         unit="m",
         distance_m=0.0,              # not distance COVERED in a race
     ),
+    "jump-high": CareerEvent(
+        code="jump-high",
+        name="High Jump",
+        value_kind="distance",
+        lower_is_better=False,
+        min_plausible=0.80,
+        max_plausible=2.50,          # the world record is 2.45
+        governing_attributes=("acceleration", "stride_efficiency", "technique"),
+        ceiling_at_zero=1.00,
+        ceiling_at_hundred=2.42,
+        splits_expected=0,
+        requires_reaction=False,
+        unit="m",
+        distance_m=0.0,
+    ),
+    "jump-triple": CareerEvent(
+        code="jump-triple",
+        name="Triple Jump",
+        value_kind="distance",
+        lower_is_better=False,
+        min_plausible=3.00,
+        max_plausible=18.50,         # the world record is 18.29
+        governing_attributes=("acceleration", "max_speed",
+                              "stride_efficiency", "technique"),
+        ceiling_at_zero=6.40,        # a complete novice
+        ceiling_at_hundred=18.10,
+        splits_expected=0,
+        requires_reaction=False,
+        unit="m",
+        distance_m=0.0,
+    ),
+    "jump-pole": CareerEvent(
+        code="jump-pole",
+        name="Pole Vault",
+        value_kind="distance",
+        lower_is_better=False,
+        min_plausible=1.50,
+        max_plausible=6.50,          # the world record is 6.30
+        # A vault is bought with runway speed carried onto the pole, so
+        # max_speed governs here where a high jump leans on the plant.
+        governing_attributes=("acceleration", "max_speed", "technique"),
+        ceiling_at_zero=2.10,
+        ceiling_at_hundred=6.25,
+        splits_expected=0,
+        requires_reaction=False,
+        unit="m",
+        distance_m=0.0,
+    ),
+    # --- Relays ----------------------------------------------------------
+    # A relay is a TIME like a sprint, but the clock covers four legs and
+    # three baton exchanges, and the exchanges are what a relay is won and
+    # lost on. The splits are the legs, not fixed distances down the track.
+    #
+    # A reaction IS recorded: the first leg starts from blocks off a gun,
+    # exactly as an individual sprint does. Wind is not — World Athletics
+    # records wind for the 100m, the 200m and the horizontal jumps, and a
+    # relay is none of those.
+    "relay-4x100": CareerEvent(
+        code="relay-4x100",
+        name="4x100m Relay",
+        value_kind="time",
+        lower_is_better=True,
+        min_plausible=35.00,         # the world record is 36.84
+        max_plausible=120.00,
+        governing_attributes=("reaction", "acceleration", "max_speed",
+                              "stride_efficiency", "technique"),
+        ceiling_at_zero=64.00,       # a complete novice team
+        ceiling_at_hundred=36.50,
+        splits_expected=4,           # one per leg
+        requires_reaction=True,
+        unit="s",
+        distance_m=400.0,
+    ),
+    "relay-4x400": CareerEvent(
+        code="relay-4x400",
+        name="4x400m Relay",
+        value_kind="time",
+        lower_is_better=True,
+        min_plausible=170.00,        # the world record is 2:54.29
+        max_plausible=420.00,
+        governing_attributes=("reaction", "acceleration", "max_speed",
+                              "stride_efficiency", "recovery", "technique"),
+        ceiling_at_zero=292.00,
+        ceiling_at_hundred=173.00,
+        splits_expected=4,
+        requires_reaction=True,
+        unit="s",
+        distance_m=1600.0,
+    ),
     # --- Throws ----------------------------------------------------------
     # Measured in metres like the jumps, but from a CIRCLE rather than a
     # board: there is no approach to run and no takeoff to place. What is

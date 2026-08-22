@@ -88,6 +88,7 @@ const TArray<FWSThrowEventSpec>& All()
 		Javelin.AngleAtZeroTechnique = 31.0;
 		Javelin.AngleAtFullTechnique = 36.0;
 		Javelin.ReleaseHeightMetres = 1.90;
+		Javelin.bFromCircle = false;   // a runway and an arc, not a circle
 		Javelin.GoverningAttributes = {
 			TEXT("acceleration"), TEXT("max_speed"), TEXT("technique")};
 		Table.Add(Javelin);

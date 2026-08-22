@@ -1,6 +1,7 @@
 #include "Misc/AutomationTest.h"
 #include "Race/WSSprintTrack.h"
 #include "Simulation/WSPaceSimulation.h"
+#include "Simulation/WSRelaySimulation.h"
 #include "Simulation/WSSprintEvents.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -16,6 +17,10 @@ bool FWSTrackCoversEveryEventTest::RunTest(const FString&)
 	// did. Both times the runner left the world and the race carried on in
 	// black nothing. Adding an event without lengthening the track fails
 	// here rather than on a player's screen.
+	//
+	// It reads EVERY table for the same reason: the 4x400 covers 1600m,
+	// which is longer than any individual event, and a table this test does
+	// not read is a table that can outrun the world again.
 	double Longest = 0.0;
 	FString LongestCode;
 	for (const FWSSprintEventSpec& Spec : WSSprintEvents::All())
@@ -31,6 +36,14 @@ bool FWSTrackCoversEveryEventTest::RunTest(const FString&)
 		if (Spec.DistanceMetres > Longest)
 		{
 			Longest = Spec.DistanceMetres;
+			LongestCode = Spec.Code;
+		}
+	}
+	for (const FWSRelayEventSpec& Spec : WSRelayEvents::All())
+	{
+		if (Spec.TotalMetres() > Longest)
+		{
+			Longest = Spec.TotalMetres();
 			LongestCode = Spec.Code;
 		}
 	}

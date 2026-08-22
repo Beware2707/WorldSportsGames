@@ -517,3 +517,77 @@ async def test_wind_limit_still_applies_to_the_long_jump(client, headers, athlet
     )
     assert r.json()["accepted"] is False
     assert "wind" in r.json()["rejection_reason"]
+
+
+async def test_relay_needs_a_leg_split_for_every_leg(client, headers, athlete):
+    # A relay's splits ARE its legs. Sending three says a leg was never
+    # run, and the clock covering four of them would then be a time nobody
+    # produced.
+    event = EVENTS["relay-4x100"]
+    ceiling = attribute_ceiling(event, {k: 40.0 for k in event.governing_attributes})
+    legs = round(ceiling / 4.0, 3)
+
+    short = await client.post(
+        "/api/v1/career/results",
+        json={
+            "event": "relay-4x100",
+            "value_num": round(ceiling + 0.5, 2),
+            "reaction_ms": 180,
+            "splits": [legs, legs, legs],
+        },
+        headers=headers,
+    )
+    assert short.status_code == 201, short.text
+    assert short.json()["accepted"] is False
+    assert "split" in short.json()["rejection_reason"]
+
+
+async def test_relay_ceiling_rejects_a_team_too_fast_for_its_athlete(
+    client, headers, athlete
+):
+    # The same rule as every timed event, and the reason a relay cannot be
+    # the back door into a leaderboard: four legs of a rookie's speed do
+    # not add up to a world record.
+    event = EVENTS["relay-4x400"]
+    ceiling = attribute_ceiling(event, {k: 40.0 for k in event.governing_attributes})
+    too_fast = round(ceiling - 20.0, 2)
+    legs = round(too_fast / 4.0, 3)
+
+    r = await client.post(
+        "/api/v1/career/results",
+        json={
+            "event": "relay-4x400",
+            "value_num": too_fast,
+            "reaction_ms": 190,
+            "splits": [legs, legs, legs, legs],
+        },
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["accepted"] is False
+    assert "ceiling" in r.json()["rejection_reason"]
+
+
+async def test_relay_accepts_a_legal_team_time_and_formats_it_as_a_clock(
+    client, headers, athlete
+):
+    event = EVENTS["relay-4x400"]
+    ceiling = attribute_ceiling(event, {k: 40.0 for k in event.governing_attributes})
+    total = round(ceiling + 4.0, 2)
+    legs = round(total / 4.0, 3)
+
+    r = await client.post(
+        "/api/v1/career/results",
+        json={
+            "event": "relay-4x400",
+            "value_num": total,
+            "reaction_ms": 190,
+            "splits": [legs, legs, legs, legs],
+        },
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["accepted"] is True, body
+    # Over a minute, so the sport writes it as minutes and seconds.
+    assert ":" in body["value_text"]

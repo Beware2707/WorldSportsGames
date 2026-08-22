@@ -357,7 +357,207 @@ any offline test:
 | The live suite outgrew the server's 10-results-per-minute anti-script cap | Thirteen submissions landed on one athlete inside a minute; the fix is spreading the load, not raising the cap |
 | The bracket test assumed a tournament starts at qualification | A tournament survives the app closing, so the test can meet one already under way |
 
-### 6.7 Deliberately still open
+### 6.7 High jump — the first event with no fixed number of attempts
+
+The fifth kind, and the one that broke an assumption baked into the field
+path: that a competition is a fixed series. A high jump is a **ladder**.
+The bar starts at an opening height and rises by a fixed increment every
+time it is cleared; the day ends on the third failure at one height,
+whenever that comes. The recorded mark is the highest bar CLEARED — not
+how high the arc actually went, because clearing 2.05 m by a foot still
+records 2.05 m.
+
+That single difference reached into every layer, and each place it was
+missed said something untrue:
+
+| Layer | What a fixed series would have claimed |
+|---|---|
+| Game mode | "attempt 4 of 3" — a jumper on their second try at 1.85 m is not on attempt 4 |
+| Scoreboard | a list of distances, when a high jump card is heights and O/X |
+| HUD | "PAST THE BOARD", when overrunning the mark is a bad jump, not a foul |
+| World | a sand pit and no bar — the player aiming at nothing they can see |
+| Result | "No mark", when the sport says a height was never cleared |
+| Live submit | a wind reading, which World Athletics records for the horizontal jumps only |
+
+**Calibration found a real trap.** Every other event uses a power curve
+with an exponent below 1 to model diminishing returns. Against a server
+ceiling that is a straight line between two endpoints, a concave curve
+sits *above* that line in the middle — so a mid-attribute athlete could
+clear a height the server would then refuse. The vertical branch therefore
+carries its own `HeightCurve`, fixed at 1.0, and endpoints deliberately
+under the server's (0.97/2.38 against 1.00/2.42). Perfect play now tops
+out at 1.25 m / 1.70 m / 2.10 m for attribute levels 25 / 55 / 85, against
+ceilings of 1.35 / 1.78 / 2.21 — approaching them from below at every
+level, which is the invariant the whole game rests on.
+
+### 6.8 Pole vault — the row the ladder paid for
+
+A whole event for thirty lines of data. The high jump's ladder, its bar,
+its card, its "no height" and its live submission all took the pole vault
+without a line of new code: a longer runway, a bar that starts at 2.60 m
+and moves in tens rather than fives, and `max_speed` in the governing set
+because a vault is bought with speed carried onto the pole where a high
+jump leans on the plant. Perfect play tops out at 3.00 / 4.20 / 5.40 m for
+attribute levels 25 / 55 / 85, against ceilings of 3.14 / 4.38 / 5.63.
+
+That is what the framework claim is supposed to buy, and it is the second
+time it has paid out — the discus and javelin were rows too.
+
+### 6.9 Triple jump — the first event with more than one takeoff
+
+The sixth kind. Everything before it turned on ONE decision: a gun, a
+board, a release. A triple jump has three takeoffs, and the two between
+them are the event — the approach buys the speed, but the rhythm decides
+how much of it survives to the sand.
+
+- The board takeoff is judged as a long jump's is, by the gap to the board.
+- Each phase then flies for as long as the ground it covers takes at the
+  speed it is covered at, and a window opens around its landing.
+- A takeoff inside that window carries the jump on; the further from the
+  landing, the more of the NEXT phase is lost — a bad step is short, not a
+  bad hop retroactively.
+- Missing the window entirely is a stumble, not a foul: the jumper carries
+  on, just shorter. Measured at attribute level 55, timing both
+  transitions is worth about a metre — 11.76 m against 10.77 m.
+
+**Spamming the button is the worst thing a player can do.** The window
+opens before the landing, so a tap the instant it opens is as far from the
+landing as a tap can be. That falls out of the model rather than being
+enforced, which is the right way for it to be true.
+
+Two calibration facts came out of it:
+
+| Finding | Why |
+|---|---|
+| The long jump's speed exponent (0.68) bulges a triple jump ABOVE its ceiling through the middle of the range | Distance goes as the square of speed while the ceiling is linear; a triple jump spans nearly twelve metres between endpoints where a long jump spans five, so the same exponent misfits by more. 0.85 straightens it |
+| The jumps' "approach the ceiling" tolerance was a fixed 0.75 m | Vacuous for a long jump (8.5% of its ceiling), impossible for a triple jump (4.1%). Eight per cent says the same thing about both — the same fix the javelin already forced on the throws |
+
+### 6.10 What the emulator found this round
+
+Seven more, and every one of them the screen or the world saying something
+the sport does not:
+
+| Defect | What it claimed |
+|---|---|
+| "Stamina 100%" on a high jump | A field event has no stamina model, so the number could never have moved |
+| "No mark" when nothing was cleared | The sport's word is NO HEIGHT. A bar never cleared is not a mark never measured |
+| The crossbar drawn at its regulation 30mm | One pixel from the far end of a 40m runway — the player aiming at something invisible. Furniture the player must AIM at is now drawn oversized on purpose, and coloured against the track rather than white, which the lane lines already are |
+| "No height — 2.60 m was never cleared" under a headline reading "No height" | The detail line said nothing the headline had not |
+| "Race again" on a jump | A jumper does not race again |
+| A javelin thrown from a CIRCLE, fouled by being "carried out of" it | The shot and the discus are thrown from a circle. A javelin is thrown from a runway over a foul arc, and its foul is crossing that arc |
+| No jumper ever left the ground | Every jump resolved at the instant of takeoff, so the world showed an athlete sliding fifteen metres along the runway |
+
+The last one is the interesting one. The fix was to give **every** jump a
+flight: the mark is still decided at takeoff, but the simulation now runs
+the athlete through the air before it measures — one phase for a long
+jump, three for a triple jump, and an arc that rises to the height a
+vertical jumper actually reached, so a clearance looks like one. Fifty-two
+tests measured the same marks to the centimetre afterwards, which is what
+made it safe to do.
+
+**Instrumenting beat guessing again.** A `WSField` line on the in-game
+status command — event, attempt, bar, failures, metres to the board,
+phase, window — turned "did that clear?" into a reading. It is how the
+pole vault's ladder was verified at 2.60 m: `best=2.60 bar=2.70 fails=0`
+in one line.
+
+### 6.11 Relays — the first event decided between athletes
+
+The seventh kind, and the last of the athletics ones. Everything before it
+turned on one athlete's decisions. A relay turns on what happens BETWEEN
+four of them.
+
+- Each leg is a sprint, judged on the same cadence. The first starts from
+  blocks off a gun; the other three start at whatever speed the exchange
+  preserved, which is why a relay team is faster than four individual runs
+  added together.
+- The baton must change hands inside the takeover zone — 30 m for the
+  4x100, 20 m for the 4x400 — and the ideal point is near the end of it,
+  with the outgoing runner already at speed.
+- **Outside the zone is a disqualification, not a slow time.** A team that
+  misses it gets no time at all, modelled exactly as a false start is. The
+  same rule covers running through the zone still holding the baton.
+- Fatigue resets at every exchange, because the next leg is a different
+  athlete. The ceiling does not: a team is four runners of the player's
+  quality, so one athlete's attributes still bound the whole clock.
+
+Measured at attribute level 55, handing over on the mark is worth 1.29 s
+over handing over as the zone opens in the 4x100, and 0.85 s in the 4x400.
+
+**The PASS button only exists inside the zone.** Pressing it outside would
+disqualify the team, so the HUD does not offer it there — the one place in
+the game where a control is withheld rather than merely unhelpful.
+
+Two calibration notes:
+
+| Finding | Why |
+|---|---|
+| The two relays needed opposite corrections — the 4x100 too FAST at low attributes, the 4x400 far too SLOW everywhere | The 4x400's fatigue numbers were inherited from the individual 400m, where one athlete runs the whole thing. A relay leg starts on fresh legs AND at speed, so the same fatigue depth ate half the team's speed |
+| Both needed a speed exponent above 1.0 (1.70 and 1.35) | The same reason the sprints do, only more so: the ceiling is linear in the attribute mean while time goes as 1/V, and a relay's ceiling spans 27 s (4x100) and 119 s (4x400) between its endpoints |
+
+**The track was 1500 m and the 4x400 is 1600 m.** The test that reads every
+event table and fails if one outruns the world caught it before the
+emulator did — the third time that constant has been too short, and the
+first time it was caught by a test rather than by a runner disappearing
+into black nothing.
+
+### 6.12 What the emulator found on the relays
+
+Three more, in one race:
+
+| Defect | What it claimed |
+|---|---|
+| A team disqualified for running through the takeover zone was told "False start — no time to submit" | They had started cleanly. Two disqualifications with two different causes were sharing one message, and the one shown named the wrong rule — and the wrong fix |
+| "0th --.-- (+0.0 m/s)" on the result | A relay records no wind. A reading of zero is not "no reading" |
+| The takeover zone was a thirty-metre slab of gold across all eight lanes | It filled the screen and read as sand. A real track marks the zone with two LINES across it, which is what it draws now |
+| "Splits 200m 18.12 300m 18.39 400m 21.40" on a relay | A relay's splits are LEGS. Labelling them by distance called the first handover "200m" and dropped the opening leg entirely — a description of a race nobody ran |
+
+The first one is the interesting one, because the model was already right:
+`bBadExchange` was set, carried into the outcome, and then thrown away by a
+verdict that only knew the word "false start". The fix was to let the
+message ask which rule was broken.
+
+**A note on the emulator itself.** The game keeps running between adb
+commands, so anything that pauses to look at a screenshot loses the race.
+A full relay has to be played by ONE script that holds the blocks, taps
+the cadence, polls the distance and calls the pass — returning to think
+between steps put the athlete 60 m further down the track than the last
+reading said.
+
+### 6.13 The batched adversarial review
+
+Run on 2026-08-22 over everything with review debt — Phase 3 backend, the
+career client, the tournament subsystem and the whole athletics expansion:
+20 commits and 12,865 changed lines. Eight findings, all fixed the same
+day, each with a regression test.
+
+**Three were in code written that same session**, which is the honest
+price of "verified on the emulator and against the server": the emulator
+checks what the screen says, and one live submission checks one set of
+numbers.
+
+| Finding | Why the tests missed it |
+|---|---|
+| Relay leg splits included the reaction, so the server refused the result | The one live submission ever made had a 175 ms reaction and a slow team; the check's tolerance is 1% of the time, so it passed. A 1500 ms auto-release — which the emulator itself produced on its first attempt — fails |
+| A duplicate PASS press disqualified the team | `bPassRequested` is cleared on a successful handover, so a second press in the same frame ran against the NEXT leg's zone |
+| The triple jump's miss penalty was diluted and leaked into later phases | Subtracting it from the whole remaining total charged 5.8% instead of 9%, a third of it to a phase that was timed perfectly |
+| High jump and pole vault claimed a wind reading | The live TEST was corrected to send none; the game's own submit path was not, so the two disagreed about the contract |
+| A post-round tournament refresh could be silently dropped | `SubmitRound` does not set `bRequestInFlight`, so `Refresh()` could return early and leave a stale bracket |
+| An unparseable 200 cleared the bracket and reported success | `FJsonSerializer::Deserialize`'s return value was ignored |
+| Training's retry path could raise on a NULL `client_ref` | The first lookup is guarded by `is not None`; the rollback lookup was not |
+| Relay passes used the simulation's clock while taps used the race clock | The trace is hashed into `InputDigest` and submitted for replay — and a two-clock trace cannot be replayed |
+
+**Isolating a model needs a closed loop, not a deleted input.** The first
+attempt at a regression test for the triple jump removed one takeoff from
+a fixed trace. That does not isolate anything: a shortened phase lands
+earlier, so the NEXT takeoff — still stamped at its original time — is
+late as well, and the two effects are indistinguishable. The test now
+generates its traces against a live shadow simulation, tapping each
+transition on its own landing except the one being missed. Measured that
+way: missing the step costs 0.95 m and missing the jump 1.08 m, in
+proportion to their shares, each charged to its own phase.
+
+### 6.14 Deliberately still open
 
 - **The 200m and 400m are run on a straight track.** Bends need track
   geometry, lane-stagger and a camera that follows a curve; the simulation is
@@ -365,6 +565,20 @@ any offline test:
 - **`recovery` counts toward the 400m ceiling but has no distinct simulated
   effect** beyond the mean. It should govern how fatigue *clears*, which needs
   a between-rounds model that does not exist yet.
+- **A relay is eight capsules, one per team.** One actor stands in for four
+  runners: the simulation runs all four legs, but the world shows a single
+  athlete covering the whole distance. Four visible runners per lane and a
+  baton that visibly changes hands is presentation work, not simulation
+  work, and it has not been done.
+- **The triple jump's transition windows are 0.18s either side of each
+  landing, and no human has tried them yet.** They are most of a 0.4s
+  flight, and the phases are near enough uniform that the rhythm can be
+  learned — but that is a claim, not a measurement. It belongs with the
+  long jump's takeoff window on the list of things a person has to play.
+- **A high jumper cannot pass a height.** The real sport lets an athlete skip
+  a bar to save legs for a higher one, and lets them enter above the opening
+  height. Both are tactics, and both need a UI decision point the ladder does
+  not have yet.
 
 ## 7. Phases 6–11
 

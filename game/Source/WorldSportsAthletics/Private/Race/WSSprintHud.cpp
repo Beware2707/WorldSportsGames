@@ -262,6 +262,41 @@ public:
 				.Text(this, &SWSSprintHudPanel::GetHurdleText)
 			]
 
+			// --- The baton, armed only inside the takeover zone ----------
+			// The same reasoning as the hurdle button: the pass is a single
+			// decision inside a window the player can see coming, and a
+			// button that only exists inside that window cannot be missed.
+			// Unlike a hurdle, pressing it outside the zone would be a
+			// disqualification, so the button is not there to press.
+			+ SOverlay::Slot()
+			.HAlign(HAlign_Right).VAlign(VAlign_Bottom)
+			.Padding(0.0f, 0.0f, 48.0f, 120.0f)
+			[
+				SNew(SBox)
+				.WidthOverride(280.0f).HeightOverride(150.0f)
+				.Visibility(this, &SWSSprintHudPanel::GetPassButtonVisibility)
+				[
+					SNew(SButton)
+					.HAlign(HAlign_Center).VAlign(VAlign_Center)
+					.OnClicked(this, &SWSSprintHudPanel::OnPass)
+					[
+						SNew(STextBlock).Font(Font(34, true))
+						.Text(LOCTEXT("PassButton", "PASS"))
+					]
+				]
+			]
+
+			// --- The relay's leg and zone readout ------------------------
+			+ SOverlay::Slot()
+			.HAlign(HAlign_Center).VAlign(VAlign_Bottom)
+			.Padding(0.0f, 0.0f, 0.0f, 168.0f)
+			[
+				SNew(STextBlock).Font(Font(30, true))
+				.ColorAndOpacity(this, &SWSSprintHudPanel::GetRelayTextColour)
+				.Visibility(this, &SWSSprintHudPanel::GetRelayVisibility)
+				.Text(this, &SWSSprintHudPanel::GetRelayText)
+			]
+
 			// --- The paced events' readout, where the cadence band sits --
 			+ SOverlay::Slot()
 			.HAlign(HAlign_Center).VAlign(VAlign_Bottom)
@@ -899,8 +934,22 @@ public:
 							SNew(SHorizontalBox)
 							+ SHorizontalBox::Slot().AutoWidth()
 							[
-								MenuButton(LOCTEXT("RaceAgain", "Race again"),
-									FOnClicked::CreateSP(this, &SWSSprintHudPanel::OnRaceAgain), 240.0f)
+								SNew(SBox)
+								.WidthOverride(240.0f)
+								.HeightOverride(72.0f)
+								.Padding(FMargin(0.0f, 6.0f))
+								[
+									SNew(SButton)
+									.HAlign(HAlign_Center).VAlign(VAlign_Center)
+									.OnClicked(FOnClicked::CreateSP(
+										this, &SWSSprintHudPanel::OnRaceAgain))
+									[
+										SNew(STextBlock).Font(Font(22, true))
+										// A jumper does not race again, and a
+										// thrower has no race to run at all.
+										.Text(this, &SWSSprintHudPanel::GetPlayAgainText)
+									]
+								]
 							]
 							+ SHorizontalBox::Slot().AutoWidth().Padding(8, 0)
 							[
@@ -1101,6 +1150,69 @@ private:
 	}
 
 	/** "HURDLE" when a barrier is close enough to take off for. */
+	/** What a relay runner is reading: which leg, and how far to the zone
+	 * the baton has to change hands in. */
+	FText GetRelayText() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		if (!GameModePtr || !GameModePtr->IsRelayEvent())
+		{
+			return FText::GetEmpty();
+		}
+		const int32 Leg = GameModePtr->GetRelayLeg();
+		if (Leg <= 0 || Leg >= GameModePtr->GetRelayLegCount())
+		{
+			// The anchor has no handover ahead — only a finish line.
+			return Leg > 0 ? LOCTEXT("AnchorLeg", "ANCHOR") : FText::GetEmpty();
+		}
+		if (GameModePtr->IsInTakeoverZone())
+		{
+			return LOCTEXT("PassNow", "PASS NOW");
+		}
+		// Counted from the event's OWN zone, not a number typed in here:
+		// the two relays have different zones, and a readout that assumed
+		// one would be wrong about the other.
+		const float ToZone = GameModePtr->GetMetresToHandover()
+			- GameModePtr->GetTakeoverZoneMetres();
+		return FText::FromString(FString::Printf(
+			TEXT("LEG %d   zone in %.0f m"), Leg, FMath::Max(ToZone, 0.0f)));
+	}
+
+	FSlateColor GetRelayTextColour() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		return GameModePtr && GameModePtr->IsInTakeoverZone()
+			? FSlateColor(FLinearColor(0.35f, 1.0f, 0.45f))
+			: FSlateColor(FLinearColor(1.0f, 0.86f, 0.35f));
+	}
+
+	EVisibility GetRelayVisibility() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		return GameModePtr && GameModePtr->IsRelayEvent()
+			&& GameModePtr->GetAppState() == EWSAppState::Racing
+			&& GameModePtr->GetPhase() == EWSEventPhase::Active
+			? EVisibility::HitTestInvisible : EVisibility::Collapsed;
+	}
+
+	EVisibility GetPassButtonVisibility() const
+	{
+		// ONLY inside the zone. A pass outside it disqualifies the team, so
+		// offering the button there would be offering a way to lose.
+		AWSSprintGameMode* GameModePtr = Mode();
+		return GameModePtr && GameModePtr->IsInTakeoverZone()
+			? EVisibility::Visible : EVisibility::Collapsed;
+	}
+
+	FReply OnPass()
+	{
+		if (AWSSprintGameMode* GameModePtr = Mode())
+		{
+			GameModePtr->PlayerPass();
+		}
+		return FReply::Handled();
+	}
+
 	FText GetHurdleText() const
 	{
 		AWSSprintGameMode* GameModePtr = Mode();
@@ -1205,15 +1317,47 @@ private:
 		{
 			return FText::GetEmpty();
 		}
+		const bool bVertical = GameModePtr->IsVerticalEvent();
+
+		// A triple jump is three takeoffs, and once the first one has gone
+		// the board countdown is over: what the player is reading now is
+		// the rhythm of the hop, the step and the jump.
+		const int32 Phase = GameModePtr->GetJumpPhase();
+		if (GameModePtr->GetJumpPhaseCount() > 1 && Phase > 0)
+		{
+			static const TCHAR* PhaseNames[] = {TEXT("HOP"), TEXT("STEP"), TEXT("JUMP")};
+			const TCHAR* Name = PhaseNames[FMath::Clamp(Phase - 1, 0, 2)];
+			if (Phase >= GameModePtr->GetJumpPhaseCount())
+			{
+				// The last one has nothing to time: it just lands.
+				return FText::FromString(FString::Printf(TEXT("%s"), Name));
+			}
+			return GameModePtr->IsJumpPhaseWindowOpen()
+				? LOCTEXT("PhaseNow", "NOW")
+				: FText::FromString(FString::Printf(TEXT("%s"), Name));
+		}
+
 		const float ToBoard = GameModePtr->GetMetresToBoard();
 		if (ToBoard > 12.0f)
 		{
-			return FText::FromString(FString::Printf(
-				TEXT("ATTEMPT %d   build your speed"), GameModePtr->GetJumpAttempt()));
+			// A high jumper is not on attempt 4 of 3 — they are on their
+			// second try at 1.85m. The height and the try at it are the two
+			// numbers the event is actually keeping.
+			return bVertical
+				? FText::FromString(FString::Printf(TEXT("%.2f m   try %d of %d"),
+					GameModePtr->GetCurrentBar(),
+					GameModePtr->GetFailuresAtHeight() + 1,
+					GameModePtr->GetFailuresAllowed()))
+				: FText::FromString(FString::Printf(
+					TEXT("ATTEMPT %d   build your speed"), GameModePtr->GetJumpAttempt()));
 		}
 		if (ToBoard < 0.0f)
 		{
-			return LOCTEXT("PastBoard", "PAST THE BOARD");
+			// Running past the mark is a foul in a long jump and merely a
+			// bad jump in a high one, so it must not be called a foul here.
+			return bVertical
+				? LOCTEXT("PastMark", "PAST THE MARK")
+				: LOCTEXT("PastBoard", "PAST THE BOARD");
 		}
 		if (ToBoard <= 2.2f)
 		{
@@ -1227,7 +1371,9 @@ private:
 		}
 		// Metres, because the mark is measured in metres from the board and
 		// the takeoff is judged the same way.
-		return FText::FromString(FString::Printf(TEXT("BOARD  %.1f m"), ToBoard));
+		return bVertical
+			? FText::FromString(FString::Printf(TEXT("MARK  %.1f m"), ToBoard))
+			: FText::FromString(FString::Printf(TEXT("BOARD  %.1f m"), ToBoard));
 	}
 
 	/** The takeoff cue goes green in the window that scores. */
@@ -1237,6 +1383,14 @@ private:
 		if (!GameModePtr || !GameModePtr->IsJumpEvent())
 		{
 			return FSlateColor(FLinearColor::White);
+		}
+		// Green means "go now", and in a triple jump that is the window
+		// around each landing rather than the board.
+		if (GameModePtr->GetJumpPhaseCount() > 1 && GameModePtr->GetJumpPhase() > 0)
+		{
+			return GameModePtr->IsJumpPhaseWindowOpen()
+				? FSlateColor(FLinearColor(0.35f, 1.0f, 0.45f))
+				: FSlateColor(FLinearColor(1.0f, 0.86f, 0.35f));
 		}
 		const float ToBoard = GameModePtr->GetMetresToBoard();
 		return ToBoard >= 0.0f && ToBoard <= 2.2f
@@ -1253,6 +1407,9 @@ private:
 		return GameModePtr && GameModePtr->IsJumpEvent()
 			&& GameModePtr->GetAppState() == EWSAppState::Racing
 			&& GameModePtr->GetPhase() == EWSEventPhase::Active
+			// And on an attempt that is still being made: between attempts
+			// the board countdown describes a jump that already landed.
+			&& GameModePtr->IsFieldAttemptLive()
 			? EVisibility::HitTestInvisible : EVisibility::Collapsed;
 	}
 
@@ -1304,7 +1461,11 @@ private:
 		FString Text = GameModePtr->GetAttemptSummary();
 		if (GameModePtr->GetBestMark() > 0.0f)
 		{
-			Text += FString::Printf(TEXT("Best %.2f m"), GameModePtr->GetBestMark());
+			// A high jumper's result is the highest bar they CLEARED, and
+			// the sport calls that a height rather than a best mark.
+			Text += GameModePtr->IsVerticalEvent()
+				? FString::Printf(TEXT("Height %.2f m"), GameModePtr->GetBestMark())
+				: FString::Printf(TEXT("Best %.2f m"), GameModePtr->GetBestMark());
 		}
 		return FText::FromString(Text);
 	}
@@ -1374,8 +1535,30 @@ private:
 		return Error < 0.0 ? LOCTEXT("Faster", "FASTER →") : LOCTEXT("Slower", "← SLOWER");
 	}
 
+	/** What the button offers. A jumper does not race again. */
+	FText GetPlayAgainText() const
+	{
+		AWSSprintGameMode* GameModePtr = Mode();
+		if (!GameModePtr || !GameModePtr->IsFieldEvent())
+		{
+			return LOCTEXT("RaceAgain", "Race again");
+		}
+		return GameModePtr->IsThrowEvent()
+			? LOCTEXT("ThrowAgain", "Throw again")
+			: LOCTEXT("JumpAgain", "Jump again");
+	}
+
 	FText GetStaminaText() const
 	{
+		AWSSprintGameMode* FieldCheck = Mode();
+		if (FieldCheck && FieldCheck->IsFieldEvent())
+		{
+			// A field event has no stamina model at all. An approach is
+			// eighteen to forty metres and a throw is a wind-up: reporting
+			// "Stamina 100%" claims a measurement nothing takes, and it
+			// would never move if it did.
+			return FText::GetEmpty();
+		}
 		const FWSRaceState* State = PlayerState();
 		if (!State || !State->bReleased || State->bFinished)
 		{
@@ -1403,10 +1586,19 @@ private:
 		{
 			return FText::GetEmpty();
 		}
-		const int32 First = FMath::Max(0, Splits.Num() - 3);
-		FString Text = TEXT("Splits");
+		// A relay's splits are LEGS, and all four fit. Labelling them by
+		// distance called the first handover "200m" and dropped the opening
+		// leg entirely, which described a race nobody ran.
+		const bool bRelay = GameModePtr->IsRelayEvent();
+		const int32 First = bRelay ? 0 : FMath::Max(0, Splits.Num() - 3);
+		FString Text = bRelay ? TEXT("Legs") : TEXT("Splits");
 		for (int32 Index = First; Index < Splits.Num(); ++Index)
 		{
+			if (bRelay)
+			{
+				Text += FString::Printf(TEXT("  %d) %.2f"), Index + 1, Splits[Index]);
+				continue;
+			}
 			// The segment length is the EVENT's, not a hardcoded 10m. A 400m
 			// splits every 50m, and labelling those 10m/20m/30m told the
 			// player their race was something it was not.
@@ -1445,8 +1637,15 @@ private:
 			// "0th --.--" is race language borrowed for something that is
 			// not a race; the result of a jump is a MARK.
 			const float Best = GameModePtr->GetBestMark();
-			return Best > 0.0f
-				? FText::FromString(FString::Printf(TEXT("%.2f m"), Best))
+			if (Best > 0.0f)
+			{
+				return FText::FromString(FString::Printf(TEXT("%.2f m"), Best));
+			}
+			// A vertical jumper who clears nothing records NO HEIGHT, which
+			// is the sport's own word for it; "no mark" belongs to a jump
+			// measured along the ground.
+			return GameModePtr->IsVerticalEvent()
+				? LOCTEXT("NoHeight", "No height")
 				: LOCTEXT("NoMark", "No mark");
 		}
 		const FWSRaceOutcome Outcome = Runner->GetOutcome();
@@ -1454,11 +1653,23 @@ private:
 		{
 			return LOCTEXT("DQ", "Disqualified — false start");
 		}
+		if (Outcome.bBadExchange)
+		{
+			return LOCTEXT("DQBaton", "Disqualified — baton outside the zone");
+		}
+		const FString Ordinal = GameModePtr->GetPlayerPosition() == 1 ? TEXT("st") :
+			GameModePtr->GetPlayerPosition() == 2 ? TEXT("nd") :
+			GameModePtr->GetPlayerPosition() == 3 ? TEXT("rd") : TEXT("th");
+		// A relay records NO wind, so the readout does not offer one:
+		// "(+0.0 m/s)" is a measurement the sport never takes here.
+		if (GameModePtr->IsRelayEvent())
+		{
+			return FText::FromString(FString::Printf(TEXT("%d%s   %s"),
+				GameModePtr->GetPlayerPosition(), *Ordinal,
+				*FormatSeconds(Outcome.TimeSeconds).ToString()));
+		}
 		return FText::FromString(FString::Printf(TEXT("%d%s   %s   (%+.1f m/s)"),
-			GameModePtr->GetPlayerPosition(),
-			*FString(GameModePtr->GetPlayerPosition() == 1 ? TEXT("st") :
-				GameModePtr->GetPlayerPosition() == 2 ? TEXT("nd") :
-				GameModePtr->GetPlayerPosition() == 3 ? TEXT("rd") : TEXT("th")),
+			GameModePtr->GetPlayerPosition(), *Ordinal,
 			*FormatSeconds(Outcome.TimeSeconds).ToString(),
 			Outcome.Wind));
 	}

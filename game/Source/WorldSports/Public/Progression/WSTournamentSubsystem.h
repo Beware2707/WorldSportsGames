@@ -72,5 +72,9 @@ private:
 	FWSTournamentResultDto LastRound;
 	FString StatusText;
 	bool bRequestInFlight = false;
+	/** A refresh was asked for while one was already in flight. The answer
+	 * already on the wire may predate what the caller needs to see, so
+	 * another read is issued as soon as it lands. */
+	bool bRefreshAgain = false;
 	TArray<FWSTournamentCallback> PendingRefreshCallbacks;
 };

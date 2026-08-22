@@ -107,6 +107,15 @@ struct WORLDSPORTSATHLETICS_API FWSThrowEventSpec
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Event")
 	double ReleaseHeightMetres = 2.10;
 
+	/**
+	 * True when the throw is made from a CIRCLE — the shot and the discus.
+	 * A javelin is not: it is thrown from a runway, over a foul arc, and
+	 * the athlete who does not let go has overstepped the arc rather than
+	 * carried it out of a circle they were never standing in.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Event")
+	bool bFromCircle = true;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Event")
 	TArray<FName> GoverningAttributes;
 };

@@ -9,6 +9,7 @@
 #include "Simulation/WSJumpSimulation.h"
 #include "Simulation/WSThrowSimulation.h"
 #include "Simulation/WSPaceSimulation.h"
+#include "Simulation/WSRelaySimulation.h"
 #include "Simulation/WSSprintEvents.h"
 #include "Tests/AutomationCommon.h"
 
@@ -423,11 +424,37 @@ bool FWSJumpFlowTest::RunTest(const FString&)
 				static_cast<float>(Spec.RunwayMetres) * 100.0f, /*Tolerance=*/1.0f);
 			TestEqual(FString::Printf(TEXT("%s: no barriers on a runway"), *Spec.Code),
 				TrackActor->GetVisibleHurdleCount(), 0);
+			// A high jump with no visible bar is played blind; a long jump
+			// with one is a bar in the middle of a runway. Both are wrong,
+			// and only the event knows which it is.
+			TestEqual(FString::Printf(TEXT("%s: the bar is up iff the bar exists"),
+					*Spec.Code),
+				TrackActor->GetBarHeightCm() > 0.0f, Spec.bVertical);
+			// World Athletics records wind for the HORIZONTAL jumps only.
+			// The live test was corrected to send none for a vertical jump
+			// and the game itself was not, so the two disagreed about the
+			// contract until this asserted it in one place.
+			TestEqual(FString::Printf(
+					TEXT("%s: a wind reading only where the sport takes one"),
+					*Spec.Code),
+				Harness.GameMode->FieldResultHasWind(), !Spec.bVertical);
+			if (Spec.bVertical)
+			{
+				TestEqual(FString::Printf(
+						TEXT("%s: the bar opens at the event's opening height"),
+						*Spec.Code),
+					TrackActor->GetBarHeightCm(),
+					static_cast<float>(Spec.StartBarMetres) * 100.0f,
+					/*Tolerance=*/0.5f);
+			}
 		}
 
 		// Run the whole series: tap the approach, take off near the board.
+		// A ladder has no fixed length — it runs until three failures at one
+		// height — so give the vertical events room to reach that end.
+		const double Budget = Spec.bVertical ? 240.0 : 60.0;
 		double NextTapAt = 0.0;
-		Harness.RunFor(60.0, 1.0 / 60.0, [&](double Clock)
+		Harness.RunFor(Budget, 1.0 / 60.0, [&](double Clock)
 		{
 			if (Clock < 0.0)
 			{
@@ -439,18 +466,55 @@ bool FWSJumpFlowTest::RunTest(const FString&)
 				NextTapAt = Clock + 1.0 / 4.6;
 			}
 			// Leave the ground while there is still board left.
-			if (Harness.GameMode->GetMetresToBoard() <= 0.35f &&
+			if (Harness.GameMode->GetJumpPhase() == 0 &&
+				Harness.GameMode->GetMetresToBoard() <= 0.35f &&
 				Harness.GameMode->GetMetresToBoard() > 0.0f)
+			{
+				Harness.GameMode->PlayerTakeoff();
+				return;
+			}
+			// A triple jump is three takeoffs: the hop and the step have to
+			// be taken off again, ON the landing. Spamming the button is
+			// the WORST thing to do — the window opens early, and a tap the
+			// moment it opens is as far from the landing as a tap can be —
+			// so this waits for the landing itself, as a jumper does.
+			if (Harness.GameMode->GetJumpPhase() > 0 &&
+				Harness.GameMode->IsJumpPhaseWindowOpen() &&
+				Harness.GameMode->GetJumpPhaseTimeRemaining() <= 0.0)
 			{
 				Harness.GameMode->PlayerTakeoff();
 			}
 		});
 
-		TestEqual(FString::Printf(TEXT("%s: the whole series was taken"), *Spec.Code),
-			Harness.GameMode->GetAttemptsTaken(), Spec.Attempts);
-		// And the HUD never announces an attempt that does not exist.
-		TestEqual(FString::Printf(TEXT("%s: no fourth attempt announced"), *Spec.Code),
-			Harness.GameMode->GetJumpAttempt(), Spec.Attempts);
+		if (Spec.bVertical)
+		{
+			// A ladder ends when the athlete has failed three times at one
+			// height — never after a set number of attempts — so the count
+			// is free but the ENDING is not.
+			TestTrue(FString::Printf(
+					TEXT("%s: the ladder ran past a fixed series (%d attempts)"),
+					*Spec.Code, Harness.GameMode->GetAttemptsTaken()),
+				Harness.GameMode->GetAttemptsTaken() > Spec.Attempts);
+			TestEqual(FString::Printf(
+					TEXT("%s: the day ended on the third failure at a height"),
+					*Spec.Code),
+				Harness.GameMode->GetFailuresAtHeight(), Spec.FailuresAllowed);
+			// The bar only ever sits on the increment grid, so a recorded
+			// height is one the sport would actually have set.
+			const double Steps = (Harness.GameMode->GetBestMark() - Spec.StartBarMetres)
+				/ Spec.BarIncrementMetres;
+			TestEqual(FString::Printf(TEXT("%s: %.2f m is a height the bar was set to"),
+					*Spec.Code, Harness.GameMode->GetBestMark()),
+				Steps, FMath::RoundToDouble(Steps), /*Tolerance=*/1.0e-6);
+		}
+		else
+		{
+			TestEqual(FString::Printf(TEXT("%s: the whole series was taken"), *Spec.Code),
+				Harness.GameMode->GetAttemptsTaken(), Spec.Attempts);
+			// And the HUD never announces an attempt that does not exist.
+			TestEqual(FString::Printf(TEXT("%s: no fourth attempt announced"), *Spec.Code),
+				Harness.GameMode->GetJumpAttempt(), Spec.Attempts);
+		}
 		TestTrue(FString::Printf(TEXT("%s: a mark was set (best %.2f m)"),
 				*Spec.Code, Harness.GameMode->GetBestMark()),
 			Harness.GameMode->GetBestMark() >= Spec.MinPlausibleMetres);
@@ -493,8 +557,16 @@ bool FWSThrowFlowTest::RunTest(const FString&)
 		AWSSprintTrack* TrackActor = Harness.GameMode->GetTrack();
 		if (TestNotNull(TEXT("track spawned"), TrackActor))
 		{
-			TestTrue(FString::Printf(TEXT("%s: the circle is out"), *Spec.Code),
-				TrackActor->IsThrowCircleVisible());
+			// A shot and a discus are thrown from a CIRCLE; a javelin is
+			// thrown from a runway over an arc. Laying out the wrong one
+			// shows the player a rule the event does not have — and it was
+			// showing a javelin thrower a circle they never stand in.
+			TestEqual(FString::Printf(TEXT("%s: a circle only where there is one"),
+					*Spec.Code),
+				TrackActor->IsThrowCircleVisible(), Spec.bFromCircle);
+			TestEqual(FString::Printf(TEXT("%s: an arc only where there is one"),
+					*Spec.Code),
+				TrackActor->IsThrowArcVisible(), !Spec.bFromCircle);
 			TestEqual(FString::Printf(TEXT("%s: no board on a throwing circle"),
 					*Spec.Code),
 				TrackActor->GetBoardX(), 0.0f);
@@ -922,6 +994,208 @@ bool FWSRaceRestartTest::RunTest(const FString&)
 	Harness.RunFor(32.0);
 	TestTrue(TEXT("second race completes"),
 		Harness.GameMode->GetPlayerRunner()->HasFinished());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSRelayFlowTest,
+	"WorldSports.Race.RelayRunsFourLegsAndThreeHandovers",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+bool FWSRelayFlowTest::RunTest(const FString&)
+{
+	// The relay through the app: a gun, four legs, three handovers inside
+	// their zones, and one clock over all of it.
+	for (const FWSRelayEventSpec& Spec : WSRelayEvents::All())
+	{
+		FRaceHarness Harness(/*bStartRace=*/false);
+		if (!TestNotNull(TEXT("game mode spawned"), Harness.GameMode))
+		{
+			return false;
+		}
+		Harness.GameMode->SelectEvent(Spec.Code);
+		TestTrue(FString::Printf(TEXT("%s is a relay"), *Spec.Code),
+			Harness.GameMode->IsRelayEvent());
+		TestFalse(TEXT("and not a field event"), Harness.GameMode->IsFieldEvent());
+		Harness.GameMode->StartQuickPlay();
+
+		// The zones are PAINTED. A takeover zone the player cannot see is a
+		// rule they cannot read, and this one decides the race.
+		AWSSprintTrack* TrackActor = Harness.GameMode->GetTrack();
+		if (TestNotNull(TEXT("track spawned"), TrackActor))
+		{
+			TestEqual(FString::Printf(TEXT("%s: one zone per handover"), *Spec.Code),
+				TrackActor->GetVisibleZoneCount(), Spec.LegCount - 1);
+			const TArray<float> Ends = TrackActor->GetVisibleZoneEnds();
+			for (int32 Index = 0; Index < Ends.Num(); ++Index)
+			{
+				TestEqual(FString::Printf(
+						TEXT("%s: zone %d closes on the leg line"), *Spec.Code, Index + 1),
+					Ends[Index],
+					static_cast<float>(Spec.LegLineMetres(Index)) * 100.0f,
+					/*Tolerance=*/1.0f);
+			}
+			TestTrue(FString::Printf(
+					TEXT("%s: the track reaches the finish (%.0fm)"),
+					*Spec.Code, Spec.TotalMetres()),
+				TrackActor->GetFinishLineX() >=
+					static_cast<float>(Spec.TotalMetres()) * 100.0f - 1.0f);
+		}
+
+		bool bHeld = false;
+		bool bReleased = false;
+		double NextTapAt = 0.0;
+		int32 PassedLeg = 0;
+		// A 4x400 is minutes long, so give the clock room to run it out.
+		const double Budget = Spec.TotalMetres() > 800.0 ? 420.0 : 90.0;
+		Harness.RunFor(Budget, 1.0 / 60.0, [&](double Clock)
+		{
+			if (!bHeld && Clock > -2.0)
+			{
+				Harness.GameMode->PlayerPress();
+				bHeld = true;
+			}
+			if (!bReleased && Clock >= 0.17)
+			{
+				Harness.GameMode->PlayerRelease();
+				bReleased = true;
+				NextTapAt = Clock + 0.12;
+			}
+			if (!bReleased)
+			{
+				return;
+			}
+			while (Clock >= NextTapAt)
+			{
+				Harness.GameMode->PlayerPress();
+				NextTapAt += 1.0 / 4.6;
+			}
+			// Hand over INSIDE the zone. Anywhere else disqualifies the
+			// team, which is exactly what the rule is for.
+			const int32 Leg = Harness.GameMode->GetRelayLeg();
+			if (Harness.GameMode->IsInTakeoverZone() && Leg != PassedLeg &&
+				Harness.GameMode->GetMetresToHandover() <= 4.0)
+			{
+				Harness.GameMode->PlayerPass();
+				PassedLeg = Leg;
+			}
+		});
+
+		AWSSprintRunner* Player = Harness.GameMode->GetPlayerRunner();
+		if (!TestNotNull(TEXT("player runner exists"), Player))
+		{
+			continue;
+		}
+		const FWSRaceOutcome Outcome = Player->GetOutcome();
+		TestTrue(FString::Printf(TEXT("%s: the team finished"), *Spec.Code),
+			Outcome.bFinished);
+		TestEqual(FString::Printf(TEXT("%s: one split per leg"), *Spec.Code),
+			Outcome.Splits.Num(), Spec.LegCount);
+		TestTrue(FString::Printf(
+				TEXT("%s: %.3fs is inside the plausible band"),
+				*Spec.Code, Outcome.TimeSeconds),
+			Outcome.TimeSeconds >= Spec.MinPlausibleSeconds &&
+				Outcome.TimeSeconds <= Spec.MaxPlausibleSeconds);
+		// A relay DOES start from blocks, so a reaction is measured.
+		TestTrue(FString::Printf(TEXT("%s: the reaction is legal"), *Spec.Code),
+			Outcome.ReactionMs >= 100.0);
+
+		// And the rest of the field raced it too, from their own traces.
+		const TArray<FWSRaceStanding>& Standings = Harness.GameMode->GetStandings();
+		TestEqual(FString::Printf(TEXT("%s: eight teams"), *Spec.Code),
+			Standings.Num(), AWSSprintTrack::LaneCount);
+
+		// The submitted trace has to be REPLAYABLE: one clock, in order.
+		// The passes were stamped with the simulation's own RaceTime while
+		// the taps used RaceClock, so a trace could hold a pass timed
+		// before a tap recorded after it — and InputDigest is submitted as
+		// the audit breadcrumb for exactly that replay.
+		const TArray<FWSRelayInputEvent>& Trace =
+			Harness.GameMode->GetPlayerRelayTrace();
+		TestTrue(FString::Printf(TEXT("%s: the trace is not empty"), *Spec.Code),
+			Trace.Num() > 0);
+		double Previous = -TNumericLimits<double>::Max();
+		bool bOrdered = true;
+		for (const FWSRelayInputEvent& Event : Trace)
+		{
+			bOrdered = bOrdered && Event.TimeSeconds >= Previous;
+			Previous = Event.TimeSeconds;
+		}
+		TestTrue(FString::Printf(
+				TEXT("%s: every input in the submitted trace is in time order"),
+				*Spec.Code),
+			bOrdered);
+
+		AddInfo(FString::Printf(
+			TEXT("RELAYFLOW %-12s %7.3fs  legs %d  reaction %.0fms"),
+			*Spec.Code, Outcome.TimeSeconds, Outcome.Splits.Num(), Outcome.ReactionMs));
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSRelayDroppedBatonTest,
+	"WorldSports.Race.ADroppedBatonIsNotAFalseStart",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+bool FWSRelayDroppedBatonTest::RunTest(const FString&)
+{
+	// Two disqualifications, two different reasons. A team that started
+	// cleanly and then ran through the takeover zone was being told it had
+	// jumped the gun — which is not what happened, and not what they need
+	// to fix.
+	const FWSRelayEventSpec& Spec = WSRelayEvents::All()[0];
+
+	FRaceHarness Harness(/*bStartRace=*/false);
+	if (!TestNotNull(TEXT("game mode spawned"), Harness.GameMode))
+	{
+		return false;
+	}
+	Harness.GameMode->SelectEvent(Spec.Code);
+	Harness.GameMode->StartQuickPlay();
+
+	bool bHeld = false;
+	bool bReleased = false;
+	double NextTapAt = 0.0;
+	// Long enough for the WHOLE field to finish: a disqualified team does
+	// not stop the race, and the verdict is only written once it is over.
+	Harness.RunFor(150.0, 1.0 / 60.0, [&](double Clock)
+	{
+		if (!bHeld && Clock > -2.0)
+		{
+			Harness.GameMode->PlayerPress();
+			bHeld = true;
+		}
+		if (!bReleased && Clock >= 0.17)
+		{
+			Harness.GameMode->PlayerRelease();
+			bReleased = true;
+			NextTapAt = Clock + 0.12;
+		}
+		if (!bReleased)
+		{
+			return;
+		}
+		while (Clock >= NextTapAt)
+		{
+			Harness.GameMode->PlayerPress();
+			NextTapAt += 1.0 / 4.6;
+		}
+		// The baton is never passed. Everything else about this run is
+		// clean.
+	});
+
+	AWSSprintRunner* Player = Harness.GameMode->GetPlayerRunner();
+	if (!TestNotNull(TEXT("player runner exists"), Player))
+	{
+		return false;
+	}
+	const FWSRaceOutcome Outcome = Player->GetOutcome();
+	TestTrue(TEXT("running through the zone disqualifies the team"),
+		Outcome.bBadExchange);
+	TestFalse(TEXT("and it is NOT recorded as a false start"), Outcome.bFalseStart);
+	TestFalse(TEXT("a disqualified team has not finished"), Outcome.bFinished);
+	TestEqual(TEXT("and has no time"), Outcome.TimeSeconds, 0.0);
+	// The verdict the player is shown has to say which rule they broke.
+	TestTrue(FString::Printf(TEXT("the verdict names the baton: '%s'"),
+			*Harness.GameMode->GetServerVerdict()),
+		Harness.GameMode->GetServerVerdict().Contains(TEXT("baton")));
 	return true;
 }
 

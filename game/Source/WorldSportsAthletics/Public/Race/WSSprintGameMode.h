@@ -7,6 +7,7 @@
 #include "Simulation/WSJumpSimulation.h"
 #include "Simulation/WSThrowSimulation.h"
 #include "Simulation/WSPaceSimulation.h"
+#include "Simulation/WSRelaySimulation.h"
 #include "Simulation/WSSprintEvents.h"
 #include "Simulation/WSSprintSimulation.h"
 
@@ -51,6 +52,10 @@ struct WORLDSPORTSATHLETICS_API FWSFieldAttempt
 	UPROPERTY(BlueprintReadOnly, Category = "Race") FString FoulReason;
 	/** Wind that stood for this attempt; 0 for events that record none. */
 	UPROPERTY(BlueprintReadOnly, Category = "Race") double Wind = 0.0;
+	/** Vertical events: the bar this attempt was against, and whether it
+	 * survived. A failure is not a foul — the athlete tries again. */
+	UPROPERTY(BlueprintReadOnly, Category = "Race") double BarMetres = 0.0;
+	UPROPERTY(BlueprintReadOnly, Category = "Race") bool bVertical = false;
 };
 
 /** One row of the server's leaderboard. */
@@ -124,10 +129,18 @@ public:
 	/** The event this race runs, when it is middle distance. */
 	const FWSPaceEventSpec& CurrentPaceEvent() const;
 
+	/** The selected event as a RELAY row. Meaningless unless
+	 * IsRelayEvent(). */
+	const FWSRelayEventSpec& CurrentRelayEvent() const;
+
 	/** True when the selected event is paced rather than sprinted: no
 	 * blocks, no cadence band, effort and a kick instead. */
 	UFUNCTION(BlueprintPure, Category = "Race")
 	bool IsPaceEvent() const;
+
+	/** True when the selected event is one of the relays: four legs, three
+	 * baton exchanges, and one clock over all of it. */
+	bool IsRelayEvent() const;
 
 	/** True for a FIELD event: a mark in metres from a series of attempts,
 	 * instead of a race against a field. */
@@ -175,6 +188,51 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Race")
 	float GetBestMark() const { return static_cast<float>(BestMark); }
 
+	/** True for a vertical field event: a bar, a ladder, and elimination
+	 * by failures rather than a fixed number of attempts. */
+	UFUNCTION(BlueprintPure, Category = "Race")
+	bool IsVerticalEvent() const;
+
+	/** The bar the athlete is facing, in metres. */
+	UFUNCTION(BlueprintPure, Category = "Race")
+	float GetCurrentBar() const { return static_cast<float>(CurrentBar); }
+
+	/** Failures at THIS height so far. Three ends the competition. */
+	UFUNCTION(BlueprintPure, Category = "Race")
+	int32 GetFailuresAtHeight() const { return FailuresAtHeight; }
+
+	/** How many failures at one height end the day. Three, in the sport. */
+	int32 GetFailuresAllowed() const;
+
+	/**
+	 * True when this field event's result carries a wind reading.
+	 *
+	 * World Athletics records wind for the HORIZONTAL jumps only. A throw
+	 * has none, and neither has a high jump or a pole vault — so neither
+	 * may report one. Named rather than inlined because the live test and
+	 * the game had drifted apart on exactly this.
+	 */
+	bool FieldResultHasWind() const;
+
+	/** How many takeoffs this jump is made of: one, or three for a triple
+	 * jump. */
+	int32 GetJumpPhaseCount() const;
+
+	/** Which of them is in the air right now, 1-based; 0 on the runway. */
+	int32 GetJumpPhase() const;
+
+	/** True while the takeoff into the next phase can be timed — the only
+	 * moment the button does anything mid-jump. */
+	bool IsJumpPhaseWindowOpen() const;
+
+	/** Seconds until the phase in the air lands; negative once it has. */
+	double GetJumpPhaseTimeRemaining() const;
+
+	/** True while an attempt is actually being made. Between attempts the
+	 * athlete is walking back, and every live readout — the board, the
+	 * phase, the power — is describing an attempt that is already over. */
+	bool IsFieldAttemptLive() const;
+
 	/** What each attempt scored, in order. A foul reads as a foul rather
 	 * than as a zero, because a foul is not a short jump. */
 	FString GetAttemptSummary() const;
@@ -182,6 +240,26 @@ public:
 	/** Take off. The one decision the whole event turns on. */
 	UFUNCTION(BlueprintCallable, Category = "Race")
 	void PlayerTakeoff();
+
+	/** Hand the baton over. Legal only inside the takeover zone; anywhere
+	 * else disqualifies the team, exactly as it does on a track. */
+	UFUNCTION(BlueprintCallable, Category = "Race")
+	void PlayerPass();
+
+	/** Metres to the next handover line; 0 on the last leg. */
+	float GetMetresToHandover() const;
+
+	/** True while the baton can legally change hands. */
+	bool IsInTakeoverZone() const;
+
+	/** Which leg the team is on, 1-based; 0 outside a relay. */
+	int32 GetRelayLeg() const;
+
+	/** How long this relay's takeover zone is, in metres; 0 outside one. */
+	float GetTakeoverZoneMetres() const;
+
+	/** How many legs this relay has; 0 outside one. */
+	int32 GetRelayLegCount() const;
 
 	/** The selected event's code, distance and split count, whichever kind
 	 * it is. Everything shared — the track, the camera, the leaderboard
@@ -459,6 +537,19 @@ private:
 	FString SelectedEventCode;
 	/** The player's middle-distance inputs, for the submitted digest. */
 	TArray<FWSPaceInputEvent> PlayerPaceTrace;
+
+	/** The relay's own input trace: taps, the gun, and three handovers. */
+	TArray<FWSRelayInputEvent> PlayerRelayTrace;
+
+public:
+	/** The trace as submitted, for tests. It is hashed into InputDigest, so
+	 * its times must be one clock's and in order or it cannot be replayed. */
+	const TArray<FWSRelayInputEvent>& GetPlayerRelayTrace() const
+	{
+		return PlayerRelayTrace;
+	}
+
+private:
 	/** Effort the player is currently asking for in a paced race. */
 	double PlayerEffort = 0.0;
 
@@ -473,6 +564,13 @@ private:
 	double BestMark = 0.0;
 	/** Seconds left of the pause between attempts. */
 	float AttemptRestSeconds = 0.0f;
+
+	// -- The vertical ladder ---------------------------------------------
+	/** A copy of the event, because the BAR changes as the day goes on and
+	 * the table itself is shared, immutable data. */
+	FWSJumpEventSpec ActiveJumpSpec;
+	double CurrentBar = 0.0;
+	int32 FailuresAtHeight = 0;
 
 	void SubmitFieldResult();
 	void StartFieldAttempt();

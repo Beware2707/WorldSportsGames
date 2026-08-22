@@ -86,6 +86,12 @@ async def submit_training(
         await session.commit()
     except IntegrityError:
         await session.rollback()
+        # Only a client_ref can identify the row a losing race already
+        # wrote. Without one there is nothing to look up: repeating the
+        # query anyway matched every session with a NULL ref and raised
+        # MultipleResultsFound, burying the real IntegrityError under a 500.
+        if body.client_ref is None:
+            raise
         athlete = await get_athlete_for_user(session, user.id)
         existing = (
             await session.execute(

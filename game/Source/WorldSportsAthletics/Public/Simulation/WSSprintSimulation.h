@@ -123,6 +123,14 @@ struct WORLDSPORTSATHLETICS_API FWSRaceOutcome
 	/** 10 segment durations; ReactionMs/1000 + sum == TimeSeconds. */
 	UPROPERTY(BlueprintReadOnly, Category = "Sprint") TArray<double> Splits;
 	UPROPERTY(BlueprintReadOnly, Category = "Sprint") double Wind = 0.0;
+
+	/**
+	 * Relays only: the baton changed hands outside the takeover zone, or
+	 * never changed hands at all. A disqualification like a false start —
+	 * and a DIFFERENT one, which is why it is a separate flag. Calling it a
+	 * false start told a team that had started cleanly they jumped the gun.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Sprint") bool bBadExchange = false;
 };
 
 class WORLDSPORTSATHLETICS_API FWSSprintSimulation

@@ -244,3 +244,24 @@ async def test_training_ceiling_still_binds_results(client, headers, athlete):
     body = r.json()
     assert body["accepted"] is False
     assert "ceiling" in body["rejection_reason"]
+
+
+async def test_repeat_sessions_without_a_client_ref_are_each_recorded(
+    client, headers, athlete
+):
+    # A session with no client_ref cannot be deduplicated, so two of them
+    # are two sessions. The idempotency lookup must never run for a NULL
+    # ref: it matches every previous NULL-ref row, and scalar_one_or_none()
+    # then raises MultipleResultsFound instead of the real error.
+    for _ in range(3):
+        r = await client.post(
+            "/api/v1/career/training",
+            json={"drill": "reaction-drill", "metric": 180.0},
+            headers=headers,
+        )
+        assert r.status_code == 201, r.text
+        assert r.json()["accepted"] is True
+
+    stats = await client.get("/api/v1/career/statistics", headers=headers)
+    assert stats.status_code == 200, stats.text
+    assert stats.json()["training_sessions"] == 3

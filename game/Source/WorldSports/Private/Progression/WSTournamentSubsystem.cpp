@@ -146,6 +146,10 @@ void UWSTournamentSubsystem::Refresh(FWSTournamentCallback Callback)
 	}
 	if (bRequestInFlight)
 	{
+		// The answer already on the wire may have been asked for BEFORE the
+		// thing this caller needs to see — a round scored a moment ago, for
+		// instance. Remember to read again rather than accepting it.
+		bRefreshAgain = true;
 		return;
 	}
 	bRequestInFlight = true;
@@ -168,10 +172,19 @@ void UWSTournamentSubsystem::Refresh(FWSTournamentCallback Callback)
 				Self->FlushRefreshCallbacks(false, Self->StatusText);
 				return;
 			}
-			// The list endpoint returns a bare JSON array.
+			// The list endpoint returns a bare JSON array. A 2xx whose body
+			// is NOT that array — a captive portal, a proxy notice — must
+			// not be read as "you have no tournament": clearing the bracket
+			// on it hid an in-progress one and still reported success, and
+			// the next Enter would have started a second bracket.
 			TArray<TSharedPtr<FJsonValue>> Parsed;
 			const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Result.Body);
-			FJsonSerializer::Deserialize(Reader, Parsed);
+			if (!FJsonSerializer::Deserialize(Reader, Parsed))
+			{
+				Self->StatusText = TEXT("Tournaments unavailable (bad response)");
+				Self->FlushRefreshCallbacks(false, Self->StatusText);
+				return;
+			}
 
 			Self->Active = FWSTournamentDto();
 			for (const TSharedPtr<FJsonValue>& Value : Parsed)
@@ -188,6 +201,13 @@ void UWSTournamentSubsystem::Refresh(FWSTournamentCallback Callback)
 			Self->StatusText.Reset();
 			Self->OnTournamentChanged.Broadcast();
 			Self->FlushRefreshCallbacks(true, FString());
+			if (Self->bRefreshAgain)
+			{
+				// Something happened while this read was in flight. Read
+				// again, or the bracket on screen is older than the server's.
+				Self->bRefreshAgain = false;
+				Self->Refresh();
+			}
 		});
 }
 

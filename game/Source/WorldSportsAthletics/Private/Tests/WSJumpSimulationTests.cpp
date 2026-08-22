@@ -51,6 +51,10 @@ bool FWSJumpCeilingTest::RunTest(const FString&)
 	// player is told their honest jump does not count.
 	for (const FWSJumpEventSpec& Spec : WSJumpEvents::All())
 	{
+		if (Spec.bVertical)
+		{
+			continue; // a bar is cleared or not; its own test covers that
+		}
 		for (const float Level : {0.0f, 25.0f, 40.0f, 55.0f, 70.0f, 85.0f, 100.0f})
 		{
 			const FWSSprintAttributes Attributes = WSTestAthlete::Uniform(Level);
@@ -101,10 +105,18 @@ bool FWSJumpCeilingTest::RunTest(const FString&)
 				BestMark <= Ceiling + 0.009);
 			// And it has to be worth jumping: a ceiling nobody can approach
 			// makes every attribute point meaningless.
+			//
+			// PROPORTIONAL, not a fixed 0.75m. A long jump spans five
+			// metres between its endpoints and a triple jump nearly twelve,
+			// so one absolute tolerance is either vacuous for the short
+			// event or impossible for the long one. Eight per cent says the
+			// same thing about both.
+			const double Reach = FMath::Max(0.35, Ceiling * 0.08);
 			TestTrue(FString::Printf(
-					TEXT("%s attrs %.0f: best %.2f m should approach the ceiling %.2f m"),
-					*Spec.Code, Level, BestMark, Ceiling),
-				BestMark >= Ceiling - 0.75);
+					TEXT("%s attrs %.0f: best %.2f m should come within %.2f m "
+						 "of the ceiling %.2f m"),
+					*Spec.Code, Level, BestMark, Reach, Ceiling),
+				BestMark >= Ceiling - Reach);
 			TestTrue(FString::Printf(
 					TEXT("%s attrs %.0f: %.2f m is inside the server's plausible band"),
 					*Spec.Code, Level, ShortestMark),
@@ -294,6 +306,291 @@ bool FWSJumpSkillOverAttributesTest::RunTest(const FString&)
 			FWSJumpSimulation::GenerateAITrace(Strong, Seed, Seed, 1.0, Spec), Spec);
 		TestTrue(TEXT("equal execution: attributes decide"),
 			StrongRun.DistanceMetres > ModestRun.DistanceMetres);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSTripleJumpTest,
+	"WorldSports.Jump.TheRhythmIsTheTripleJump",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+bool FWSTripleJumpTest::RunTest(const FString&)
+{
+	// A triple jump is a hop, a step and a jump, and the two takeoffs
+	// between them are the event. This is the check that they MATTER: the
+	// same athlete off the same board, timing the transitions or not
+	// timing them, must not measure the same.
+	for (const FWSJumpEventSpec& Spec : WSJumpEvents::All())
+	{
+		if (Spec.PhaseCount <= 1)
+		{
+			continue;
+		}
+		TestEqual(FString::Printf(TEXT("%s: a phase share for every phase"), *Spec.Code),
+			Spec.PhaseShares.Num(), Spec.PhaseCount);
+		double ShareTotal = 0.0;
+		for (const double Share : Spec.PhaseShares)
+		{
+			ShareTotal += Share;
+		}
+		// If the shares did not sum to one, the jump would measure more (or
+		// less) than the athlete actually covered.
+		TestEqual(FString::Printf(TEXT("%s: the phases are the whole jump"), *Spec.Code),
+			ShareTotal, 1.0, /*Tolerance=*/1.0e-9);
+
+		const FWSSprintAttributes Attributes = WSTestAthlete::Uniform(55.0f);
+		for (uint32 Seed = 1; Seed <= 8; ++Seed)
+		{
+			// A jumper who times both transitions.
+			const TArray<FWSJumpInputEvent> Rhythmic =
+				FWSJumpSimulation::GenerateAITrace(Attributes, Seed, Seed, 1.0, Spec);
+			const FWSJumpOutcome OnRhythm =
+				FWSJumpSimulation::RunTrace(Attributes, Seed, Rhythmic, Spec);
+
+			// The SAME jumper off the same board who never takes off again:
+			// strip every takeoff after the first and nothing else changes.
+			TArray<FWSJumpInputEvent> Stumbling;
+			bool bTookOff = false;
+			for (const FWSJumpInputEvent& Event : Rhythmic)
+			{
+				if (Event.Type == EWSJumpInputType::Takeoff)
+				{
+					if (bTookOff)
+					{
+						continue;
+					}
+					bTookOff = true;
+				}
+				Stumbling.Add(Event);
+			}
+			const FWSJumpOutcome Stumbled =
+				FWSJumpSimulation::RunTrace(Attributes, Seed, Stumbling, Spec);
+
+			if (OnRhythm.bFoul || Stumbled.bFoul)
+			{
+				continue; // a fouled approach says nothing about the rhythm
+			}
+			TestTrue(FString::Printf(
+					TEXT("%s seed %u: timing the hop and the step (%.2f m) must beat "
+						 "stumbling through them (%.2f m)"),
+					*Spec.Code, Seed, OnRhythm.DistanceMetres, Stumbled.DistanceMetres),
+				OnRhythm.DistanceMetres > Stumbled.DistanceMetres + 0.10);
+			// Both takeoffs are recorded, and the FIRST one is not one of
+			// them: the board takeoff is judged by the gap to the board.
+			TestEqual(FString::Printf(TEXT("%s: one error per transition"), *Spec.Code),
+				OnRhythm.PhaseErrors.Num(), Spec.PhaseCount - 1);
+			if (Seed == 1)
+			{
+				AddInfo(FString::Printf(
+					TEXT("RHYTHM %-11s on-rhythm %5.2f m   stumbled %5.2f m   cost %.2f m"),
+					*Spec.Code, OnRhythm.DistanceMetres, Stumbled.DistanceMetres,
+					OnRhythm.DistanceMetres - Stumbled.DistanceMetres));
+			}
+		}
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSHighJumpTest,
+	"WorldSports.Jump.TheBarIsClearedOrItIsNot",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+bool FWSHighJumpTest::RunTest(const FString&)
+{
+	// A vertical jump asks a different question from a horizontal one: not
+	// how far, but whether the bar survived — and the MARK is the bar, not
+	// the arc. Clearing 1.80m by a foot still records 1.80m.
+	for (const FWSJumpEventSpec& Base : WSJumpEvents::All())
+	{
+		if (!Base.bVertical)
+		{
+			continue;
+		}
+		for (const float Level : {25.0f, 55.0f, 85.0f})
+		{
+			const FWSSprintAttributes Attributes = WSTestAthlete::Uniform(Level);
+			const double Ceiling = ServerCeiling(Base, Level);
+
+			// Walk the bar up until the athlete can no longer clear it —
+			// which is exactly what the competition does.
+			double HighestCleared = 0.0;
+			for (double Bar = Base.StartBarMetres; Bar <= Base.MaxPlausibleMetres;
+				Bar += Base.BarIncrementMetres)
+			{
+				FWSJumpEventSpec Spec = Base;
+				Spec.BarMetres = Bar;
+				bool bClearedAny = false;
+				for (uint32 Seed = 1; Seed <= 6; ++Seed)
+				{
+					const FWSJumpOutcome Outcome = FWSJumpSimulation::RunTrace(
+						Attributes, Seed,
+						FWSJumpSimulation::GenerateAITrace(Attributes, Seed, Seed, 1.0, Spec),
+						Spec);
+					if (Outcome.bCleared)
+					{
+						bClearedAny = true;
+						// The mark is the BAR, not how high the arc went.
+						TestEqual(TEXT("a cleared bar records the bar"),
+							Outcome.DistanceMetres, Bar);
+					}
+					else
+					{
+						// Failing to clear is NOT a foul in the sense of a
+						// disqualification — the athlete may try again.
+						TestEqual(TEXT("a missed bar records no mark"),
+							Outcome.DistanceMetres, 0.0);
+					}
+				}
+				if (!bClearedAny)
+				{
+					break;
+				}
+				HighestCleared = Bar;
+			}
+
+			AddInfo(FString::Printf(
+				TEXT("BAR %-10s attrs %3.0f  highest cleared %.2f m  ceiling %.2f m"),
+				*Base.Code, Level, HighestCleared, Ceiling));
+
+			// The same integration guarantee as every other event, in the
+			// direction a distance event runs: never above the ceiling, and
+			// close enough to it that attributes are worth training.
+			TestTrue(FString::Printf(
+					TEXT("%s attrs %.0f: %.2f m must NOT exceed ceiling %.2f m"),
+					*Base.Code, Level, HighestCleared, Ceiling),
+				HighestCleared <= Ceiling + 0.009);
+			TestTrue(FString::Printf(
+					TEXT("%s attrs %.0f: %.2f m should approach the ceiling %.2f m"),
+					*Base.Code, Level, HighestCleared, Ceiling),
+				HighestCleared >= Ceiling - FMath::Max(0.10, Ceiling * 0.10));
+		}
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWSTripleJumpPenaltyTest,
+	"WorldSports.Jump.AMissCostsThePhaseItLaunches",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+bool FWSTripleJumpPenaltyTest::RunTest(const FString&)
+{
+	// A mistimed takeoff costs the phase it LAUNCHES, and only that phase.
+	//
+	// The penalty used to be subtracted from the whole remaining jump, so
+	// it landed at a fraction of its size AND shortened every later phase:
+	// a completely missed hop-to-step takeoff took 3% off the JUMP, which
+	// had been timed perfectly.
+	//
+	// The traces are built CLOSED-LOOP, tapping each transition on its own
+	// landing except the one being missed. Deleting a takeoff from a fixed
+	// trace does not isolate the model: a shortened phase lands earlier, so
+	// the next takeoff — still stamped at its original time — is late too,
+	// and the two effects cannot be told apart.
+	for (const FWSJumpEventSpec& Spec : WSJumpEvents::All())
+	{
+		if (Spec.PhaseCount < 3)
+		{
+			continue;
+		}
+		TestTrue(TEXT("the jump phase is longer than the step"),
+			Spec.PhaseShares[2] > Spec.PhaseShares[1]);
+
+		const FWSSprintAttributes Attributes = WSTestAthlete::Uniform(55.0f);
+
+		// Tap the approach and the board exactly as a good jumper does,
+		// then tap every transition ON its landing except SkipPhase.
+		auto TraceMissing = [&Attributes, &Spec](uint32 Seed, int32 SkipPhase)
+		{
+			TArray<FWSJumpInputEvent> Trace;
+			FWSJumpSimulation Shadow(Attributes, Seed, Spec);
+			double NextTapAt = 0.12;
+			bool bJumped = false;
+			int32 TappedPhase = 0;
+			while (Shadow.Step())
+			{
+				const FWSJumpState& Live = Shadow.GetState();
+				while (NextTapAt <= Live.RaceTime && !bJumped)
+				{
+					FWSJumpInputEvent Tap;
+					Tap.TimeSeconds = NextTapAt;
+					Tap.Type = EWSJumpInputType::Tap;
+					Trace.Add(Tap);
+					Shadow.AddInput(Tap);
+					NextTapAt += 1.0 /
+						FMath::Max(Shadow.TargetCadenceAt(Live.Distance), 0.5);
+				}
+				if (!bJumped && Live.MetresToBoard <= 0.03 + Live.Speed *
+					FWSJumpSimulation::StepDt)
+				{
+					FWSJumpInputEvent Takeoff;
+					Takeoff.TimeSeconds = Live.RaceTime;
+					Takeoff.Type = EWSJumpInputType::Takeoff;
+					Trace.Add(Takeoff);
+					Shadow.AddInput(Takeoff);
+					bJumped = true;
+				}
+				// The transition INTO Live.Phase + 1, timed on the landing
+				// of the phase in the air — unless this is the one missed.
+				if (Live.bPhaseWindowOpen && Live.Phase != TappedPhase &&
+					Live.PhaseTimeRemaining <= 0.0)
+				{
+					TappedPhase = Live.Phase;
+					if (Live.Phase + 1 != SkipPhase)
+					{
+						FWSJumpInputEvent Phase;
+						Phase.TimeSeconds = Live.RaceTime;
+						Phase.Type = EWSJumpInputType::Takeoff;
+						Trace.Add(Phase);
+						Shadow.AddInput(Phase);
+					}
+				}
+			}
+			return Trace;
+		};
+
+		for (uint32 Seed = 1; Seed <= 6; ++Seed)
+		{
+			const FWSJumpOutcome OnRhythm = FWSJumpSimulation::RunTrace(
+				Attributes, Seed, TraceMissing(Seed, /*SkipPhase=*/0), Spec);
+			const FWSJumpOutcome MissedStep = FWSJumpSimulation::RunTrace(
+				Attributes, Seed, TraceMissing(Seed, /*SkipPhase=*/2), Spec);
+			const FWSJumpOutcome MissedJump = FWSJumpSimulation::RunTrace(
+				Attributes, Seed, TraceMissing(Seed, /*SkipPhase=*/3), Spec);
+			if (OnRhythm.bFoul || MissedStep.bFoul || MissedJump.bFoul)
+			{
+				continue;
+			}
+
+			const double StepCost = OnRhythm.DistanceMetres - MissedStep.DistanceMetres;
+			const double JumpCost = OnRhythm.DistanceMetres - MissedJump.DistanceMetres;
+
+			// Each miss is charged to its own phase, so the cost is that
+			// phase's share of the jump times the penalty. The jump phase is
+			// longer than the step, so missing it costs more.
+			TestTrue(FString::Printf(
+					TEXT("%s seed %u: missing the takeoff into the JUMP (%.2f m) must "
+						 "cost more than missing the one into the STEP (%.2f m), "
+						 "because the jump is the longer phase"),
+					*Spec.Code, Seed, JumpCost, StepCost),
+				JumpCost > StepCost);
+
+			for (int32 Phase = 1; Phase <= 2; ++Phase)
+			{
+				const double Cost = Phase == 1 ? StepCost : JumpCost;
+				const double Expected = OnRhythm.DistanceMetres *
+					Spec.PhaseShares[Phase] * Spec.PhaseMissPenalty;
+				TestTrue(FString::Printf(
+						TEXT("%s seed %u: missing phase %d costs %.2f m, which must be "
+							 "about the %.0f%% of that phase it is charged (%.2f m)"),
+						*Spec.Code, Seed, Phase + 1, Cost,
+						Spec.PhaseMissPenalty * 100.0, Expected),
+					Cost > Expected * 0.80 && Cost < Expected * 1.30);
+			}
+			if (Seed == 1)
+			{
+				AddInfo(FString::Printf(
+					TEXT("PHASECOST %-11s clean %.2f m   missed step -%.2f m")
+					TEXT("   missed jump -%.2f m"),
+					*Spec.Code, OnRhythm.DistanceMetres, StepCost, JumpCost));
+			}
+		}
 	}
 	return true;
 }

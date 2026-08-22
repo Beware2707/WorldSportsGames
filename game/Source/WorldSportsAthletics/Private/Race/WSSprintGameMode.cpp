@@ -457,6 +457,25 @@ const FWSPaceEventSpec& AWSSprintGameMode::CurrentPaceEvent() const
 	return WSPaceEvents::Find(SelectedEventCode);
 }
 
+const FWSRelayEventSpec& AWSSprintGameMode::CurrentRelayEvent() const
+{
+	return WSRelayEvents::Find(SelectedEventCode);
+}
+
+bool AWSSprintGameMode::IsRelayEvent() const
+{
+	// Membership, not a naming convention — the same rule every other kind
+	// is decided by.
+	for (const FWSRelayEventSpec& Spec : WSRelayEvents::All())
+	{
+		if (Spec.Code == SelectedEventCode)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 const FWSJumpEventSpec& AWSSprintGameMode::CurrentJumpEvent() const
 {
 	return WSJumpEvents::Find(SelectedEventCode);
@@ -502,6 +521,60 @@ void AWSSprintGameMode::PlayerThrowRelease()
 	ThrowSim->AddInput(Release);
 }
 
+bool AWSSprintGameMode::FieldResultHasWind() const
+{
+	return IsJumpEvent() && !IsVerticalEvent();
+}
+
+int32 AWSSprintGameMode::GetFailuresAllowed() const
+{
+	return IsJumpEvent() ? CurrentJumpEvent().FailuresAllowed : 0;
+}
+
+int32 AWSSprintGameMode::GetJumpPhaseCount() const
+{
+	return IsJumpEvent() ? CurrentJumpEvent().PhaseCount : 1;
+}
+
+int32 AWSSprintGameMode::GetJumpPhase() const
+{
+	// A finished attempt is in no phase at all: reporting the last one
+	// would leave "JUMP" on screen while the athlete walks back.
+	return IsFieldAttemptLive() ? JumpSim->GetState().Phase : 0;
+}
+
+bool AWSSprintGameMode::IsJumpPhaseWindowOpen() const
+{
+	return JumpSim.IsValid() && JumpSim->GetState().bPhaseWindowOpen;
+}
+
+bool AWSSprintGameMode::IsFieldAttemptLive() const
+{
+	if (AttemptRestSeconds > 0.0f)
+	{
+		return false;
+	}
+	if (JumpSim.IsValid())
+	{
+		return !JumpSim->GetState().bFinished;
+	}
+	if (ThrowSim.IsValid())
+	{
+		return !ThrowSim->GetState().bFinished;
+	}
+	return false;
+}
+
+double AWSSprintGameMode::GetJumpPhaseTimeRemaining() const
+{
+	return JumpSim.IsValid() ? JumpSim->GetState().PhaseTimeRemaining : 0.0;
+}
+
+bool AWSSprintGameMode::IsVerticalEvent() const
+{
+	return IsJumpEvent() && CurrentJumpEvent().bVertical;
+}
+
 int32 AWSSprintGameMode::FieldAttemptCount() const
 {
 	if (IsThrowEvent())
@@ -545,6 +618,15 @@ FString AWSSprintGameMode::GetAttemptSummary() const
 		// A foul is not a short attempt, and writing it as 0.00 m would say
 		// it was. The scoreboard says X and WHY, because the two failures
 		// need opposite corrections.
+		if (Attempts[Index].bVertical)
+		{
+			// A high jump card shows the BAR and whether it survived, which
+			// is what the athlete was actually attempting.
+			Text += FString::Printf(TEXT("%.2f m  %s") LINE_TERMINATOR,
+				Attempts[Index].BarMetres,
+				Attempts[Index].bFoul ? TEXT("X") : TEXT("O"));
+			continue;
+		}
 		Text += Attempts[Index].bFoul
 			? FString::Printf(TEXT("%d. X  %s") LINE_TERMINATOR, Index + 1,
 				*Attempts[Index].FoulReason)
@@ -575,11 +657,21 @@ FString AWSSprintGameMode::SelectedEventCodeOrDefault() const
 
 double AWSSprintGameMode::SelectedDistanceMetres() const
 {
+	if (IsRelayEvent())
+	{
+		return CurrentRelayEvent().TotalMetres();
+	}
 	return IsPaceEvent() ? CurrentPaceEvent().DistanceMetres : CurrentEvent().DistanceMetres;
 }
 
 int32 AWSSprintGameMode::SelectedSplitCount() const
 {
+	if (IsRelayEvent())
+	{
+		// A relay's splits are its LEGS. Marking a 4x400 every 50m would
+		// label the handovers as something they are not.
+		return CurrentRelayEvent().LegCount;
+	}
 	return IsPaceEvent() ? CurrentPaceEvent().SplitCount : CurrentEvent().SplitCount;
 }
 
@@ -592,6 +684,10 @@ FString AWSSprintGameMode::GetSelectedEventName() const
 	if (IsJumpEvent())
 	{
 		return CurrentJumpEvent().DisplayName;
+	}
+	if (IsRelayEvent())
+	{
+		return CurrentRelayEvent().DisplayName;
 	}
 	return IsPaceEvent() ? CurrentPaceEvent().DisplayName : CurrentEvent().DisplayName;
 }
@@ -624,6 +720,14 @@ void AWSSprintGameMode::SelectEvent(const FString& EventCode)
 			return;
 		}
 	}
+	for (const FWSRelayEventSpec& Spec : WSRelayEvents::All())
+	{
+		if (Spec.Code == EventCode)
+		{
+			SelectedEventCode = Spec.Code;
+			return;
+		}
+	}
 	SelectedEventCode = WSSprintEvents::Find(EventCode).Code;
 }
 
@@ -637,6 +741,10 @@ TArray<FString> AWSSprintGameMode::AllEventCodes()
 		Codes.Add(Spec.Code);
 	}
 	for (const FWSPaceEventSpec& Spec : WSPaceEvents::All())
+	{
+		Codes.Add(Spec.Code);
+	}
+	for (const FWSRelayEventSpec& Spec : WSRelayEvents::All())
 	{
 		Codes.Add(Spec.Code);
 	}
@@ -771,17 +879,21 @@ void AWSSprintGameMode::SubmitTournamentRound()
 	Result.EventCode = SelectedEventCodeOrDefault();
 	Result.ValueNum = Outcome.TimeSeconds;
 	// Events without blocks have no reaction to report, and reporting one
-	// would be a measurement the sport never took.
+	// would be a measurement the sport never took. A relay DOES start from
+	// blocks off a gun, so it reports one.
 	Result.bHasReactionMs = !IsPaceEvent();
 	Result.ReactionMs = Outcome.ReactionMs;
 	Result.Splits = Outcome.Splits;
-	// No wind is recorded beyond 200m, so none is claimed.
-	Result.bHasWind = !IsPaceEvent();
+	// No wind is recorded beyond 200m, and none for a relay either, so
+	// none is claimed for them.
+	Result.bHasWind = !IsPaceEvent() && !IsRelayEvent();
 	Result.Wind = Outcome.Wind;
 	Result.RngSeed = FString::Printf(TEXT("%u"), RaceSeed);
-	Result.InputDigest = IsPaceEvent()
-		? FWSMiddleDistanceSimulation::DigestTrace(PlayerPaceTrace)
-		: FWSSprintSimulation::DigestTrace(PlayerTrace);
+	Result.InputDigest = IsRelayEvent()
+		? FWSRelaySimulation::DigestTrace(PlayerRelayTrace)
+		: (IsPaceEvent()
+			? FWSMiddleDistanceSimulation::DigestTrace(PlayerPaceTrace)
+			: FWSSprintSimulation::DigestTrace(PlayerTrace));
 
 	bAwaitingServer = true;
 	SetPhase(EWSEventPhase::Submit);
@@ -947,8 +1059,20 @@ void AWSSprintGameMode::StartFieldAttempt()
 	}
 	else
 	{
+		// The bar moves as the day goes on, so the attempt runs against a
+		// COPY of the event carrying the height currently being attempted.
+		ActiveJumpSpec = CurrentJumpEvent();
+		ActiveJumpSpec.BarMetres = ActiveJumpSpec.bVertical ? CurrentBar : 0.0;
+		if (Track && ActiveJumpSpec.bVertical)
+		{
+			// Raise the bar in the world to the height being attempted, so
+			// what the player is aiming at is a thing they can see rather
+			// than a number on the HUD.
+			Track->SetHighJumpBar(static_cast<float>(ActiveJumpSpec.RunwayMetres),
+				static_cast<float>(CurrentBar));
+		}
 		JumpSim = MakeShared<FWSJumpSimulation>(
-			ResolvePlayerAttributes(), AttemptSeed, CurrentJumpEvent());
+			ResolvePlayerAttributes(), AttemptSeed, ActiveJumpSpec);
 		PlayerJumpTrace.Reset();
 	}
 	RaceClock = -MinSetSeconds;   // a moment to gather before the attempt
@@ -965,6 +1089,32 @@ void AWSSprintGameMode::RecordFieldAttempt(const FWSFieldAttempt& Attempt)
 	}
 
 	++AttemptIndex;
+
+	if (Attempt.bVertical)
+	{
+		// A ladder, not a best-of. Clearing raises the bar and clears the
+		// slate; failing three times at one height ends the day, which is
+		// why a high jumper's competition has no fixed length.
+		if (Attempt.bFoul)
+		{
+			++FailuresAtHeight;
+			if (FailuresAtHeight >= ActiveJumpSpec.FailuresAllowed)
+			{
+				bRaceRunning = false;
+				BuildStandings();
+				SetPhase(EWSEventPhase::Finishing);
+				return;
+			}
+		}
+		else
+		{
+			FailuresAtHeight = 0;
+			CurrentBar += ActiveJumpSpec.BarIncrementMetres;
+		}
+		AttemptRestSeconds = 1.6f;
+		return;
+	}
+
 	if (AttemptIndex < FieldAttemptCount())
 	{
 		// Another attempt: the series IS the competition, and a foul costs
@@ -986,8 +1136,11 @@ void AWSSprintGameMode::SubmitFieldResult()
 	// jump of zero metres rather than as a competition without a result.
 	if (BestMark <= 0.0)
 	{
-		ServerVerdict = FString::Printf(
-			TEXT("No mark — all %d attempts fouled"), FieldAttemptCount());
+		// The headline above this already says "No height"; repeating it
+		// here says the same thing twice and tells the athlete nothing.
+		ServerVerdict = IsVerticalEvent()
+			? FString::Printf(TEXT("%.2f m was never cleared"), CurrentBar)
+			: FString::Printf(TEXT("All %d attempts fouled"), FieldAttemptCount());
 		return;
 	}
 
@@ -1018,10 +1171,11 @@ void AWSSprintGameMode::SubmitFieldResult()
 	Result.ValueNum = BestMark;
 	// Nothing to react to in a field event, so no reaction is reported.
 	Result.bHasReactionMs = false;
-	// A JUMP is a wind-affected mark and the +2.0 limit applies to it. A
-	// THROW is not: the sport records no wind for throws, so claiming one
-	// would be inventing a measurement.
-	Result.bHasWind = IsJumpEvent();
+	// A HORIZONTAL jump is a wind-affected mark and the +2.0 limit applies
+	// to it. A throw is not, and neither is a high jump or a pole vault:
+	// the sport records no wind for any of them, so claiming one would be
+	// inventing a measurement.
+	Result.bHasWind = FieldResultHasWind();
 	Result.Wind = BestWind;
 	Result.RngSeed = FString::Printf(TEXT("%u"), RaceSeed);
 	Result.InputDigest = IsThrowEvent()
@@ -1100,8 +1254,13 @@ void AWSSprintGameMode::TickThrow(float DeltaSeconds)
 		Attempt.Metres = Outcome.DistanceMetres;
 		Attempt.bFoul = Outcome.bFoul;
 		Attempt.Wind = 0.0; // no wind is recorded for throws
+		// A javelin thrower who never lets go has crossed the ARC. They
+		// were never standing in a circle to be carried out of.
 		Attempt.FoulReason = Outcome.bCarriedOut
-			? TEXT("carried out of the circle") : TEXT("no mark");
+			? (CurrentThrowEvent().bFromCircle
+				? TEXT("carried out of the circle")
+				: TEXT("over the arc"))
+			: TEXT("no mark");
 		RecordFieldAttempt(Attempt);
 	}
 }
@@ -1149,7 +1308,7 @@ void AWSSprintGameMode::TickJump(float DeltaSeconds)
 	if (PlayerRunner)
 	{
 		PlayerRunner->DriveVisual(3, TEXT("You"),
-			State.Distance, State.Speed, State.bAirborne);
+			State.Distance, State.Speed, State.bAirborne, State.HeightAboveGround);
 	}
 
 	if (State.bFinished)
@@ -1159,8 +1318,13 @@ void AWSSprintGameMode::TickJump(float DeltaSeconds)
 		Attempt.Metres = Outcome.DistanceMetres;
 		Attempt.bFoul = Outcome.bFoul;
 		Attempt.Wind = Outcome.Wind;
-		Attempt.FoulReason = Outcome.bOverstepped
-			? TEXT("over the board") : TEXT("short of the pit");
+		Attempt.bVertical = ActiveJumpSpec.bVertical;
+		Attempt.BarMetres = ActiveJumpSpec.BarMetres;
+		Attempt.FoulReason = ActiveJumpSpec.bVertical
+			// A high jumper who misses has not fouled — they failed to
+			// clear, and that is a different word for a different thing.
+			? FString::Printf(TEXT("%.2f m not cleared"), ActiveJumpSpec.BarMetres)
+			: (Outcome.bOverstepped ? TEXT("over the board") : TEXT("short of the pit"));
 		RecordFieldAttempt(Attempt);
 	}
 }
@@ -1176,9 +1340,26 @@ void AWSSprintGameMode::StartRace()
 		// puts the board and pit away.
 		Track->SetJumpPit(
 			IsJumpEvent() ? static_cast<float>(CurrentJumpEvent().RunwayMetres) : 0.0f,
-			10.0f);
-		// The throwing circle: the whole event happens inside it.
-		Track->SetThrowCircle(IsThrowEvent());
+			// A vertical jumper lands on a mat, so there is no pit to lay.
+			// Otherwise the sand runs as far as the event can reach: a ten
+			// metre pit is right for a long jump and eight metres short of
+			// where a triple jumper comes down.
+			IsVerticalEvent() ? 0.0f
+				: static_cast<float>(CurrentJumpEvent().MaxPlausibleMetres + 1.0));
+		// The crossbar starts the competition at the opening height.
+		Track->SetHighJumpBar(
+			IsJumpEvent() ? static_cast<float>(CurrentJumpEvent().RunwayMetres) : 0.0f,
+			IsVerticalEvent() ? static_cast<float>(CurrentBar) : 0.0f);
+		// The throwing circle — or, for a javelin, the arc it is thrown
+		// over, because a javelin thrower never stands in a circle.
+		Track->SetThrowCircle(IsThrowEvent(),
+			!IsThrowEvent() || CurrentThrowEvent().bFromCircle);
+		// The takeover zones belong to the relays, and a flat race takes
+		// them away.
+		Track->SetTakeoverZones(
+			IsRelayEvent() ? CurrentRelayEvent().LegCount : 0,
+			IsRelayEvent() ? static_cast<float>(CurrentRelayEvent().LegMetres) : 0.0f,
+			IsRelayEvent() ? static_cast<float>(CurrentRelayEvent().TakeoverZoneMetres) : 0.0f);
 		// Barriers belong to the event, so a flat race takes them away and a
 		// hurdles race stands exactly its own up.
 		const bool bHurdles = !IsPaceEvent() && CurrentEvent().HasHurdles();
@@ -1248,6 +1429,8 @@ void AWSSprintGameMode::StartRace()
 		AttemptIndex = 0;
 		BestMark = 0.0;
 		AttemptRestSeconds = 0.0f;
+		FailuresAtHeight = 0;
+		CurrentBar = IsVerticalEvent() ? CurrentJumpEvent().StartBarMetres : 0.0;
 
 		AWSSprintRunner* Runner = GetWorld()->SpawnActor<AWSSprintRunner>(
 			AWSSprintRunner::StaticClass(), FTransform::Identity);
@@ -1285,7 +1468,13 @@ void AWSSprintGameMode::SpawnField()
 		}
 		if (Lane == PlayerLane)
 		{
-			if (IsPaceEvent())
+			if (IsRelayEvent())
+			{
+				Runner->InitializeRelayRace(ResolvePlayerAttributes(), RaceSeed, Lane,
+					TEXT("You"), /*bIsPlayer=*/true, CurrentRelayEvent());
+				PlayerRelayTrace.Reset();
+			}
+			else if (IsPaceEvent())
 			{
 				Runner->InitializePaceRace(ResolvePlayerAttributes(), RaceSeed, Lane,
 					TEXT("You"), /*bIsPlayer=*/true, CurrentPaceEvent());
@@ -1315,7 +1504,19 @@ void AWSSprintGameMode::SpawnField()
 			const uint32 InputSeed = RaceSeed + 1013u * (OpponentIndex + 1);
 			const FString RivalName =
 				OpponentNames[OpponentIndex % UE_ARRAY_COUNT(OpponentNames)];
-			if (IsPaceEvent())
+			if (IsRelayEvent())
+			{
+				Runner->InitializeRelayRace(Attributes, RaceSeed, Lane, RivalName,
+					/*bIsPlayer=*/false, CurrentRelayEvent());
+				// The rival team runs the SAME simulation from a trace of
+				// its own — never a scripted finish. What a difficulty tier
+				// changes is how well they hold the cadence and judge the
+				// handovers, which is what it changes in every other event.
+				Runner->PushRelayTrace(FWSRelaySimulation::GenerateAITrace(
+					Attributes, RaceSeed, InputSeed, Level.ReactionMeanMs,
+					Level.ReactionSpreadMs, Level.Consistency, CurrentRelayEvent()));
+			}
+			else if (IsPaceEvent())
 			{
 				Runner->InitializePaceRace(Attributes, RaceSeed, Lane, RivalName,
 					/*bIsPlayer=*/false, CurrentPaceEvent());
@@ -1774,9 +1975,13 @@ void AWSSprintGameMode::SubmitPlayerResult()
 	const FWSRaceOutcome Outcome = PlayerRunner->GetOutcome();
 	if (!Outcome.bFinished)
 	{
-		// A false start has no time to submit. Saying so plainly beats
-		// inventing a result or silently skipping the step.
-		ServerVerdict = TEXT("False start — no time to submit");
+		// Neither a false start nor a dropped baton has a time to submit,
+		// and they are DIFFERENT disqualifications. Calling a missed
+		// handover a false start told a team that had started cleanly they
+		// had jumped the gun.
+		ServerVerdict = Outcome.bBadExchange
+			? TEXT("The baton left the takeover zone — no time to submit")
+			: TEXT("False start — no time to submit");
 		return;
 	}
 
@@ -1792,17 +1997,21 @@ void AWSSprintGameMode::SubmitPlayerResult()
 	Result.EventCode = SelectedEventCodeOrDefault();
 	Result.ValueNum = Outcome.TimeSeconds;
 	// Events without blocks have no reaction to report, and reporting one
-	// would be a measurement the sport never took.
+	// would be a measurement the sport never took. A relay DOES start from
+	// blocks off a gun, so it reports one.
 	Result.bHasReactionMs = !IsPaceEvent();
 	Result.ReactionMs = Outcome.ReactionMs;
 	Result.Splits = Outcome.Splits;
-	// No wind is recorded beyond 200m, so none is claimed.
-	Result.bHasWind = !IsPaceEvent();
+	// No wind is recorded beyond 200m, and none for a relay either, so
+	// none is claimed for them.
+	Result.bHasWind = !IsPaceEvent() && !IsRelayEvent();
 	Result.Wind = Outcome.Wind;
 	Result.RngSeed = FString::Printf(TEXT("%u"), RaceSeed);
-	Result.InputDigest = IsPaceEvent()
-		? FWSMiddleDistanceSimulation::DigestTrace(PlayerPaceTrace)
-		: FWSSprintSimulation::DigestTrace(PlayerTrace);
+	Result.InputDigest = IsRelayEvent()
+		? FWSRelaySimulation::DigestTrace(PlayerRelayTrace)
+		: (IsPaceEvent()
+			? FWSMiddleDistanceSimulation::DigestTrace(PlayerPaceTrace)
+			: FWSSprintSimulation::DigestTrace(PlayerTrace));
 
 	bAwaitingServer = true;
 	SetPhase(EWSEventPhase::Submit);
@@ -1865,6 +2074,30 @@ void AWSSprintGameMode::WSStatus()
 		bPaused ? 1 : 0, IsSignedIn() ? 1 : 0,
 		State ? State->Distance : 0.0, State ? State->Speed : 0.0,
 		LeaderboardRows.Num(), *LeaderboardStatus, *ServerVerdict);
+
+	// A field event's live state is nowhere in the line above: none of
+	// distance, speed or a leaderboard says where the mark is, how far the
+	// board is, or which try at which height this is. Driving a sub-second
+	// takeoff window through adb is guesswork without them.
+	if (IsFieldEvent())
+	{
+		const FWSJumpState* Jump = JumpSim.IsValid() ? &JumpSim->GetState() : nullptr;
+		// A ladder has no fixed number of attempts, so reporting "4 of 3"
+		// would be the same lie the HUD used to tell.
+		UE_LOG(LogWorldSports, Display,
+			TEXT("WSField event=%s attempt=%d/%s best=%.2f bar=%.2f fails=%d "
+				 "board=%.2f airborne=%d phase=%d phaseT=%.3f window=%d power=%.2f"),
+			*SelectedEventCodeOrDefault(), AttemptIndex + 1,
+			IsVerticalEvent() ? TEXT("ladder")
+				: *FString::FromInt(FieldAttemptCount()),
+			BestMark, CurrentBar, FailuresAtHeight,
+			Jump ? Jump->MetresToBoard : 0.0,
+			Jump && Jump->bAirborne ? 1 : 0,
+			Jump ? Jump->Phase : 0,
+			Jump ? Jump->PhaseTimeRemaining : 0.0,
+			Jump && Jump->bPhaseWindowOpen ? 1 : 0,
+			ThrowSim.IsValid() ? ThrowSim->GetState().Power : 0.0);
+	}
 }
 
 void AWSSprintGameMode::DebugDeliverStaleSubmit()
@@ -1911,6 +2144,24 @@ void AWSSprintGameMode::PlayerPress()
 		PushPlayerEffort(FMath::Min(1.0, PlayerEffort + 0.12));
 		return;
 	}
+	if (IsRelayEvent())
+	{
+		// Blocks then rhythm, exactly as a sprint: a relay leg IS a sprint,
+		// and the baton is a separate press.
+		if (!PlayerRunner->GetState().bReleased)
+		{
+			if (bHolding)
+			{
+				return;
+			}
+			bHolding = true;
+			return; // the hold itself is not an input the relay models
+		}
+		const FWSRelayInputEvent Tap{RaceClock, EWSRelayInputType::Tap};
+		PlayerRelayTrace.Add(Tap);
+		PlayerRunner->PushRelayInput(Tap);
+		return;
+	}
 
 	// Still in the blocks — whatever the phase — so this press is the hold.
 	// Gating this on the Ready phase used to strand any player whose first
@@ -1931,6 +2182,58 @@ void AWSSprintGameMode::PlayerPress()
 	const FWSSprintInputEvent Event{RaceClock, EWSSprintInputType::Tap};
 	PlayerTrace.Add(Event);
 	PlayerRunner->PushInput(Event);
+}
+
+void AWSSprintGameMode::PlayerPass()
+{
+	// The one decision a relay turns on. Outside the takeover zone it is a
+	// disqualification, and the simulation is what decides that — this only
+	// delivers the press.
+	if (!PlayerRunner || !PlayerRunner->IsRelayEvent() || !bRaceRunning || bPaused)
+	{
+		return;
+	}
+	if (RaceClock < 0.0)
+	{
+		return; // the gun has not gone
+	}
+	// RaceClock, exactly as the taps and the release use — NOT the
+	// simulation's own clock. The trace is hashed into InputDigest and
+	// submitted as the run's audit breadcrumb; a trace whose passes come
+	// from a different clock than its taps cannot be replayed to reproduce
+	// the handover, which is the only thing that digest is for.
+	const FWSRelayInputEvent Pass{RaceClock, EWSRelayInputType::Pass};
+	PlayerRelayTrace.Add(Pass);
+	PlayerRunner->PushRelayInput(Pass);
+}
+
+float AWSSprintGameMode::GetMetresToHandover() const
+{
+	return PlayerRunner && PlayerRunner->IsRelayEvent()
+		? static_cast<float>(PlayerRunner->GetRelayState().MetresToHandover) : 0.0f;
+}
+
+bool AWSSprintGameMode::IsInTakeoverZone() const
+{
+	return PlayerRunner && PlayerRunner->IsRelayEvent()
+		&& PlayerRunner->GetRelayState().bInTakeoverZone;
+}
+
+float AWSSprintGameMode::GetTakeoverZoneMetres() const
+{
+	return IsRelayEvent()
+		? static_cast<float>(CurrentRelayEvent().TakeoverZoneMetres) : 0.0f;
+}
+
+int32 AWSSprintGameMode::GetRelayLegCount() const
+{
+	return IsRelayEvent() ? CurrentRelayEvent().LegCount : 0;
+}
+
+int32 AWSSprintGameMode::GetRelayLeg() const
+{
+	return PlayerRunner && PlayerRunner->IsRelayEvent()
+		? PlayerRunner->GetRelayState().Leg : 0;
 }
 
 void AWSSprintGameMode::PlayerTakeoff()
@@ -1960,6 +2263,20 @@ void AWSSprintGameMode::PlayerRelease()
 			// refills slowly — but it is how a race is saved.
 			PushPlayerEffort(FMath::Max(0.35, PlayerEffort - 0.10));
 		}
+		return;
+	}
+	if (IsRelayEvent())
+	{
+		if (!bHolding || !PlayerRunner || bPaused || PlayerRunner->GetState().bReleased)
+		{
+			return;
+		}
+		bHolding = false;
+		// Releasing before the gun is a false start, and the SIMULATION
+		// decides that — not the UI.
+		const FWSRelayInputEvent Event{RaceClock, EWSRelayInputType::Release};
+		PlayerRelayTrace.Add(Event);
+		PlayerRunner->PushRelayInput(Event);
 		return;
 	}
 	if (!bHolding || !PlayerRunner || bPaused || PlayerRunner->GetState().bReleased)

@@ -102,6 +102,66 @@ AWSSprintTrack::AWSSprintTrack()
 	ThrowCircle->SetMobility(EComponentMobility::Movable);
 	ThrowCircle->SetVisibility(false);
 
+	// Takeover zones. The band is where the baton may legally change
+	// hands; the line at its end is the point past which it may not.
+	for (int32 Index = 0; Index < MaxTakeoverZones; ++Index)
+	{
+		// The line where the zone OPENS. A real track marks the zone with
+		// two lines across it, not a painted slab: a thirty-metre block of
+		// colour filled the screen and read as sand rather than as a rule.
+		UStaticMeshComponent* Band = MakeBox(
+			*FString::Printf(TEXT("TakeoverBand%d"), Index),
+			FVector(0.0f, 0.0f, 0.6f),
+			FVector(6.0f, LaneWidthCm * LaneCount * 0.5f, 1.0f),
+			FLinearColor(0.98f, 0.72f, 0.16f));
+		Band->SetMobility(EComponentMobility::Movable);
+		Band->SetVisibility(false);
+		TakeoverBands.Add(Band);
+
+		UStaticMeshComponent* Line = MakeBox(
+			*FString::Printf(TEXT("TakeoverLine%d"), Index),
+			FVector(0.0f, 0.0f, 0.9f),
+			FVector(6.0f, LaneWidthCm * LaneCount * 0.5f, 1.0f),
+			FLinearColor(0.99f, 0.99f, 0.96f));
+		Line->SetMobility(EComponentMobility::Movable);
+		Line->SetVisibility(false);
+		TakeoverLines.Add(Line);
+	}
+
+	// The javelin's foul arc: a line across the runway that the thrower
+	// must not cross. Drawing a circle for a javelin would show a rule the
+	// event does not have.
+	ThrowArc = MakeBox(TEXT("ThrowArc"), FVector(0.0f, 0.0f, 0.5f),
+		FVector(6.0f, LaneWidthCm * 2.0f, 1.0f), FLinearColor(0.94f, 0.94f, 0.90f));
+	ThrowArc->SetMobility(EComponentMobility::Movable);
+	ThrowArc->SetVisibility(false);
+
+	// The crossbar: a thin white bar between two uprights, plus a mat to
+	// land on. All movable, because the bar rises through the competition.
+	// Thick enough to READ from the far end of a runway. A regulation bar
+	// is 30mm across, and at 40m that is roughly one pixel: a bar the
+	// player cannot see is a bar they cannot aim at, which is the whole
+	// event. It is drawn oversized on purpose, and coloured against the
+	// track rather than white, which the lane lines already are.
+	CrossBar = MakeBox(TEXT("CrossBar"), FVector(0.0f, 0.0f, 100.0f),
+		FVector(6.0f, LaneWidthCm * 1.0f, 6.0f), FLinearColor(1.0f, 0.78f, 0.10f));
+	CrossBar->SetMobility(EComponentMobility::Movable);
+	CrossBar->SetVisibility(false);
+	for (int32 Side = -1; Side <= 1; Side += 2)
+	{
+		UStaticMeshComponent* Upright = MakeBox(
+			*FString::Printf(TEXT("BarUpright%d"), Side),
+			FVector(0.0f, Side * LaneWidthCm, 130.0f),
+			FVector(8.0f, 8.0f, 130.0f), FLinearColor(0.92f, 0.94f, 0.97f));
+		Upright->SetMobility(EComponentMobility::Movable);
+		Upright->SetVisibility(false);
+		BarUprights.Add(Upright);
+	}
+	LandingMat = MakeBox(TEXT("LandingMat"), FVector(0.0f, 0.0f, 30.0f),
+		FVector(250.0f, LaneWidthCm * 1.2f, 30.0f), FLinearColor(0.22f, 0.34f, 0.62f));
+	LandingMat->SetMobility(EComponentMobility::Movable);
+	LandingMat->SetVisibility(false);
+
 	// Blocks, one per lane, just behind the start line.
 	for (int32 Lane = 0; Lane < LaneCount; ++Lane)
 	{
@@ -228,7 +288,9 @@ void AWSSprintTrack::SetJumpPit(float BoardMetres, float PitLengthMetres)
 	}
 	if (SandPit)
 	{
-		SandPit->SetVisibility(bJumping);
+		// A vertical jumper lands on a mat, not in sand: PitLengthMetres of
+		// zero says "this runway has no pit" rather than "a pit of nothing".
+		SandPit->SetVisibility(bJumping && PitLengthMetres > 0.0f);
 		if (bJumping)
 		{
 			// The pit starts AT the board, because that is where the tape
@@ -244,11 +306,131 @@ void AWSSprintTrack::SetJumpPit(float BoardMetres, float PitLengthMetres)
 	}
 }
 
-void AWSSprintTrack::SetThrowCircle(bool bVisible)
+void AWSSprintTrack::SetHighJumpBar(float BoardMetres, float BarMetres)
+{
+	const bool bVertical = BarMetres > 0.0f;
+	const float BarX = BoardMetres * 100.0f + 100.0f; // the bar sits past the mark
+	const float BarZ = BarMetres * 100.0f;
+	if (CrossBar)
+	{
+		CrossBar->SetVisibility(bVertical);
+		if (bVertical)
+		{
+			CrossBar->SetRelativeLocation(FVector(BarX, 0.0f, BarZ));
+		}
+	}
+	for (int32 Index = 0; Index < BarUprights.Num(); ++Index)
+	{
+		UStaticMeshComponent* Upright = BarUprights[Index];
+		if (!Upright)
+		{
+			continue;
+		}
+		Upright->SetVisibility(bVertical);
+		if (bVertical)
+		{
+			// The uprights stand a little taller than the bar, as they do
+			// in the pit — the bar is never at the very top of them.
+			const float Height = FMath::Max(BarZ + 30.0f, 60.0f);
+			const float Side = (Index == 0) ? -1.0f : 1.0f;
+			Upright->SetRelativeLocation(
+				FVector(BarX, Side * LaneWidthCm, Height * 0.5f));
+			Upright->SetRelativeScale3D(FVector(8.0f, 8.0f, Height * 0.5f) / 50.0f);
+		}
+	}
+	if (LandingMat)
+	{
+		LandingMat->SetVisibility(bVertical);
+		if (bVertical)
+		{
+			LandingMat->SetRelativeLocation(FVector(BarX + 250.0f, 0.0f, 30.0f));
+		}
+	}
+}
+
+void AWSSprintTrack::SetTakeoverZones(int32 LegCount, float LegMetres, float ZoneMetres)
+{
+	// One zone before each handover — three in a four-leg relay, because
+	// the last leg finishes rather than hands over.
+	PaintedZones = FMath::Clamp(LegCount - 1, 0, MaxTakeoverZones);
+	for (int32 Index = 0; Index < TakeoverBands.Num(); ++Index)
+	{
+		const bool bShow = Index < PaintedZones && LegMetres > 0.0f && ZoneMetres > 0.0f;
+		UStaticMeshComponent* Band = TakeoverBands[Index];
+		UStaticMeshComponent* Line = TakeoverLines[Index];
+		if (Band)
+		{
+			Band->SetVisibility(bShow);
+		}
+		if (Line)
+		{
+			Line->SetVisibility(bShow);
+		}
+		if (!bShow)
+		{
+			continue;
+		}
+		const float EndX = (Index + 1) * LegMetres * 100.0f;
+		if (Band)
+		{
+			// Where the zone opens: the earliest the baton may change hands.
+			Band->SetRelativeLocation(
+				FVector(EndX - ZoneMetres * 100.0f, 0.0f, 0.6f));
+		}
+		if (Line)
+		{
+			Line->SetRelativeLocation(FVector(EndX, 0.0f, 0.9f));
+		}
+	}
+}
+
+int32 AWSSprintTrack::GetVisibleZoneCount() const
+{
+	int32 Count = 0;
+	for (const UStaticMeshComponent* Band : TakeoverBands)
+	{
+		if (Band && Band->IsVisible())
+		{
+			++Count;
+		}
+	}
+	return Count;
+}
+
+TArray<float> AWSSprintTrack::GetVisibleZoneEnds() const
+{
+	TArray<float> Ends;
+	for (const UStaticMeshComponent* Line : TakeoverLines)
+	{
+		if (Line && Line->IsVisible())
+		{
+			Ends.Add(Line->GetRelativeLocation().X);
+		}
+	}
+	Ends.Sort();
+	return Ends;
+}
+
+bool AWSSprintTrack::IsThrowArcVisible() const
+{
+	return ThrowArc && ThrowArc->IsVisible();
+}
+
+float AWSSprintTrack::GetBarHeightCm() const
+{
+	return (CrossBar && CrossBar->IsVisible())
+		? CrossBar->GetRelativeLocation().Z : 0.0f;
+}
+
+void AWSSprintTrack::SetThrowCircle(bool bVisible, bool bCircle)
 {
 	if (ThrowCircle)
 	{
-		ThrowCircle->SetVisibility(bVisible);
+		ThrowCircle->SetVisibility(bVisible && bCircle);
+	}
+	if (ThrowArc)
+	{
+		ThrowArc->SetVisibility(bVisible && !bCircle);
 	}
 	// Blocks belong to a race start, not to a throwing circle.
 	for (UStaticMeshComponent* Block : StartingBlocks)
